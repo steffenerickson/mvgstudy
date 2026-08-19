@@ -270,12 +270,15 @@ rows crr, Abar, lambda, erho2_dcfpl; columns estimate, se, ci_lo, ci_hi{p_end}
 sampling variances subtracted in the disattenuation{p_end}
 
 
-{title:Reference}
+{title:References}
 
 {pstd}
 Erickson, S.  Dissertation, chapter 2: reliability of LLM-classifier-based
 observational measures under differential classifier functioning (DCF).
 CRR and the DCF-extended generalizability coefficients are defined there.
+
+{pstd}
+Li, G., Michaelides, M. P., & Haertel, E. (2023). Bootstrap confidence intervals for generalizability theory variance components. {it:PLOS ONE}, 18(7), e0288069.
 
 
 {title:Also see}

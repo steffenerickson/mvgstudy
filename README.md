@@ -59,3 +59,4 @@ See the [package page](https://steffenerickson.github.io/software/mvgstudy/) for
 
 - Brennan, R. L. (2001). *Generalizability theory*. Springer.
 - Efron, B., & Tibshirani, R. J. (1993). *An introduction to the bootstrap*. Chapman & Hall.
+- Li, G., Michaelides, M. P., & Haertel, E. (2023). Bootstrap confidence intervals for generalizability theory variance components. *PLOS ONE*, 18(7), e0288069.
