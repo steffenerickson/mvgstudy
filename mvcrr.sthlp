@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.3.4  24aug2026}{...}
+{* *! version 1.4.0  24aug2026}{...}
 {viewerjumpto "Syntax" "mvcrr##syntax"}{...}
 {viewerjumpto "Description" "mvcrr##description"}{...}
 {viewerjumpto "Options" "mvcrr##options"}{...}
@@ -84,6 +84,8 @@ Negative variance-component estimates are truncated at zero (with a note).  If
 truncation removes both person-level DCF components, lambda = 1 by construction
 and the reported CRR is an {it:upper bound}, not an estimate.
 
+
+{pstd}Requires Stata 19 or later. No dependencies outside official Stata (the Mata engine ships compiled in {cmd:lmvgstudy.mlib}).{p_end}
 
 {marker options}{...}
 {title:Options}

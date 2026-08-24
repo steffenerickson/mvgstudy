@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.3.4  24aug2026}{...}
+{* *! version 1.4.0  24aug2026}{...}
 {viewerdialog mvgstudy "dialog _mvgstudy"}{...}
 {viewerjumpto "Syntax" "mvgstudy##syntax"}{...}
 {viewerjumpto "Description" "mvgstudy##description"}{...}
@@ -57,6 +57,8 @@ o For fully-crossed or purely-nested designs, only the residual term need be giv
 {title:Description}
 
 {pstd}{opt mvgstudy} estimates variance and covariance components for multifaceted generalizability designs, following Brennan (2001). It supports any combination of crossed and nested facets, univariate and multivariate outcome variables, balanced and unbalanced designs, and data with missing outcome values. {p_end}
+
+{pstd}Requires Stata 19 or later. No dependencies outside official Stata (the Mata engine ships compiled in {cmd:lmvgstudy.mlib}).{p_end}
 
 {pstd}For {bf:balanced designs}, the command uses the SSCP-based method-of-moments estimator derived from a MANOVA decomposition (Brennan, 2001, Ch. 9). {p_end}
 

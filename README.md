@@ -19,7 +19,22 @@ net install mvgstudy, from("https://raw.githubusercontent.com/steffenerickson/mv
 net get mvgstudy, from("https://raw.githubusercontent.com/steffenerickson/mvgstudy/main/")   // example datasets
 ```
 
-Requirements: Stata 16 or later. No dependencies outside official Stata.
+Requirements: **Stata 19 or later.** No dependencies outside official Stata.
+
+Existing users upgrading from 1.3.x: reinstall with `replace` (as above). Version 1.4.0 changes the file layout, so a plain re-run of the old install will not pick up the new files.
+
+### Files
+
+`net install` places the following in your PLUS directory:
+
+| File | Contents |
+|---|---|
+| `mvgstudy.ado`, `mvdstudy.ado`, `mvcrr.ado` | one Stata command per file |
+| `_mvg_parse_equation.ado` | private helper used by `mvgstudy` |
+| `lmvgstudy.mlib` | compiled Mata library (class `mvgstudy` and its helpers) |
+| `mvgstudy.sthlp`, `mvdstudy.sthlp`, `mvcrr.sthlp` | help files |
+
+The Mata source (`mvgstudy.mata`) and the build script (`build_mlib.do`) are in the repository for transparency but are not installed.
 
 ## Quick start
 

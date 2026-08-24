@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.3.4  24aug2026}{...}
+{* *! version 1.4.0  24aug2026}{...}
 {viewerdialog mvdstudy "dialog _mvdstudy"}{...}
 {viewerjumpto "Syntax" "mvdstudy##syntax"}{...}
 {viewerjumpto "Description" "mvdstudy##description"}{...}
@@ -47,6 +47,8 @@
 {title:Description}
 
 {pstd}{opt mvdstudy} is a post-estimation command for {helpb mvgstudy}. It uses the variance and covariance component estimates from a G-study to project reliability coefficients (generalizability coefficient Eρ² or phi coefficient Φ) and the associated error and true-score variances under a proposed measurement design.{p_end}
+
+{pstd}Requires Stata 19 or later. No dependencies outside official Stata (the Mata engine ships compiled in {cmd:lmvgstudy.mlib}).{p_end}
 
 {pstd}Two modes are available:{p_end}
 
