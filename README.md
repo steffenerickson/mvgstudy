@@ -49,7 +49,7 @@ See the [package page](https://steffenerickson.github.io/software/mvgstudy/) for
 @software{erickson2026mvgstudy,
   author  = {Erickson, Steffen},
   title   = {mvgstudy: Stata commands for multivariate generalizability and decision studies},
-  version = {1.3.3},
+  version = {1.3.4},
   year    = {2026},
   url     = {https://github.com/steffenerickson/mvgstudy}
 }

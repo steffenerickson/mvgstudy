@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.3.2  15aug2026}{...}
+{* *! version 1.3.4  24aug2026}{...}
 {viewerdialog mvgstudy "dialog _mvgstudy"}{...}
 {viewerjumpto "Syntax" "mvgstudy##syntax"}{...}
 {viewerjumpto "Description" "mvgstudy##description"}{...}
@@ -108,6 +108,8 @@ o For fully-crossed or purely-nested designs, only the residual term need be giv
 {pstd}{bf:Cluster-level resampling.} For each bootstrap replicate, unique values of each bootunit facet are sampled with replacement. All rows matching the sampled facet-level values are selected and their facet-level labels are re-indexed sequentially. For balanced designs this preserves cell structure, so the fast SSCP path is used for all replicates. For unbalanced designs the CP-terms path is used; replicates with rank-deficient K matrices are automatically skipped.{p_end}
 
 {pstd}{bf:Nested facets.} When a single bootunit facet is nested within another (e.g., {cmd:bootunit(h)} in a design where items are nested in raters), the command uses within-parent-group resampling: child-facet levels are resampled independently within each combination of parent-facet values. The jackknife for BCa acceleration is performed at the first-parent level.{p_end}
+
+{pstd}{bf:Jackknife size warning.} If the jackknife has fewer than 10 leave-out units (for example, {cmd:bootunit(p)} in a termlist written {cmd:p|l} — persons nested within lessons — so that the jackknife runs over the few lesson indices), the command prints a warning that BCa acceleration estimates are unreliable. This almost always means the nesting direction in the termlist is reversed: {cmd:a|b} means {it:a} nested within {it:b}, so lessons within persons is {cmd:l|p}, not {cmd:p|l}.{p_end}
 
 {pstd}{bf:Output.} One {cmd:r(emcp_table_}{it:eff}{cmd:)} matrix per effect, with rows named {it:v_vp} for all k² outcome pairs and columns {cmd:estimate}, {cmd:se}, {cmd:ci_lo}, {cmd:ci_hi}. Effect names containing {cmd:#} or {cmd:|} are sanitized (replaced with {cmd:_}) to satisfy Stata matrix name rules.{p_end}
 

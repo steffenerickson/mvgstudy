@@ -1,12 +1,14 @@
 
 //----------------------------------------------------------------------------//
 //----------------------------------------------------------------------------//
-*! mvgstudy / mvdstudy / mvcrr  version 1.3.3  15aug2026
+*! mvgstudy / mvdstudy / mvcrr  version 1.3.4  24aug2026
 *! (Phase 12 adds mvcrr — projected construct-relevant reliability;
 *!  Phase 12b adds bootstrap BCa CIs for CRR; Phase 12c adds the pwmeans
 *!  option — person-weighted means for unbalanced designs; Phase 12d adds
 *!  single-replication mode — lambda x Erho2_DCF:P with disattenuation, for
-*!  designs with no lesson replication.
+*!  designs with no lesson replication.  v1.3.4 truncates negative variance
+*!  components at zero inside D-study bootstrap replicates and warns when the
+*!  BCa jackknife has fewer than 10 leave-out units.
 *!  The prior release, v1.2.1, is preserved unmodified as mvgstudy_old.ado.)
 //----------------------------------------------------------------------------//
 //----------------------------------------------------------------------------//
@@ -855,6 +857,8 @@ class mvgstudy
 
 	// Phase 10d: D-study bootstrap summary
 	transmorphic    dstudy_boot_summary   // asarray: varname → (n_rows*3)×4 matrix
+	real scalar     ds_trunc_             // 1 = truncate negative components at 0 (set only inside run_dstudy_bootstrap)
+	real scalar     ds_ntrunc_            // count of replicate components truncated
 
 	// Phase 11: saved state for fixed-facet restoration
 	string vector   orig_effects
@@ -1976,6 +1980,16 @@ real matrix mvgstudy::errorprojections()
 	// uniqueffects is set canonically by relative/absolute_errors_effects
 	colspan = length(uniqueffects)
 
+	// Phase 10e: inside D-study bootstrap replicates, truncate negative
+	// variance components at zero so that ratios such as
+	// true / (true + error) stay within [0, 1].  Off (ds_trunc_ == 0) for point
+	// estimates so non-bootstrap output is unchanged.
+	if (ds_trunc_ == 1) {
+		ds_ntrunc_ = ds_ntrunc_ + sum(errorvariances :< 0) + (objmeasurevariance < 0)
+		errorvariances     = errorvariances :* (errorvariances :> 0)
+		objmeasurevariance = max((objmeasurevariance, 0))
+	}
+
 	// --- All non-object facets absorbed (e.g., every non-object facet fixed) ---
 	// No error sources remain; reliability is 1 by construction.
 	if (colspan == 0) {
@@ -2610,6 +2624,11 @@ void mvgstudy::run_bootstrap(real scalar       B,
 	jack_fl               = facetlevels
 	jack_fl[jack_col_idx] = n_jack_reps - 1
 
+	if (n_jack_reps < 10) {
+		printf("{err}Warning: BCa jackknife has only %g leave-out units (%s); acceleration estimates are unreliable — check that the nesting direction in the termlist is what you intend (a|b means a nested within b).{smcl}\n",
+		       n_jack_reps, facets[jack_col_idx])
+	}
+
 	for (j_p = 1; j_p <= n_jack_reps; j_p++) {
 		sel    = selectindex(Z_data[., jack_col_idx] :!= jack_uniq_c[j_p])
 		Y_boot = Y_data[sel, .]
@@ -2751,6 +2770,8 @@ void mvgstudy::run_dstudy_bootstrap(real scalar ci_alpha_ds)
 	}
 
 	// Bootstrap loop: reconstruct covcomps from boot_store each rep
+	ds_trunc_  = 1
+	ds_ntrunc_ = 0
 	boot_check = asarray(boot_store, "emcp1")
 	for (b = 1; b <= boot_B; b++) {
 		rep_valid = !missing(boot_check[b, 1])
@@ -2811,6 +2832,10 @@ void mvgstudy::run_dstudy_bootstrap(real scalar ci_alpha_ds)
 	}
 
 	// Restore original covcomps and re-run D-study to restore projections
+	ds_trunc_ = 0
+	if (ds_ntrunc_ > 0) {
+		printf("{text}Note: %g negative variance component(s) across bootstrap/jackknife replicates truncated at zero before forming D-study ratios.{smcl}\n", ds_ntrunc_)
+	}
 	for (ei = 1; ei <= m; ei++) {
 		eff_name = "emcp" + strofreal(ei)
 		asarray(covcomps, eff_name, asarray(orig_covcomps, eff_name))

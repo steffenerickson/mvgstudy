@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.3.2  15aug2026}{...}
+{* *! version 1.3.4  24aug2026}{...}
 {viewerdialog mvdstudy "dialog _mvdstudy"}{...}
 {viewerjumpto "Syntax" "mvdstudy##syntax"}{...}
 {viewerjumpto "Description" "mvdstudy##description"}{...}
@@ -123,6 +123,8 @@ A fixed facet is not randomly sampled from a universe; its variance components a
 3. {bf:erho2} (relative) or {bf:phi} (absolute) — reliability coefficient{p_end}
 
 {pstd}The BCa acceleration is estimated from the jackknife samples stored during the G-study bootstrap. No additional resampling is performed at the D-study stage.{p_end}
+
+{pstd}{bf:Truncation of negative components.} Inside each bootstrap and jackknife replicate, negative variance components (error or object-of-measurement) are truncated at zero before the D-study ratios are formed, so replicate reliability coefficients stay within [0, 1]. Point estimates are never truncated. When any truncation occurs, a note reports the total number of truncated components across replicates. A large count relative to the number of replicates signals a weakly identified design; check the nesting direction of the termlist ({cmd:a|b} means {it:a} nested within {it:b}) and see the jackknife-size warning in {help mvgstudy##bootstrap:mvgstudy}.{p_end}
 
 {pstd}{bf:Current mode:} the output matrix has 3 rows (one per quantity) and 4 columns ({cmd:estimate}, {cmd:se}, {cmd:ci_lo}, {cmd:ci_hi}).{p_end}
 

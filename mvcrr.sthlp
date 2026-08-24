@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.3.2  15aug2026}{...}
+{* *! version 1.3.4  24aug2026}{...}
 {viewerjumpto "Syntax" "mvcrr##syntax"}{...}
 {viewerjumpto "Description" "mvcrr##description"}{...}
 {viewerjumpto "Options" "mvcrr##options"}{...}
