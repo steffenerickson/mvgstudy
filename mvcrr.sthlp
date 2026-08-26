@@ -487,55 +487,61 @@ prevalence the error is about .01 (Simulation 4, skew arm).
 
 {pstd}Both example datasets are installed by {cmd:net get mvgstudy}; their
 generators ({cmd:gen_mvcrrexampledata.do}, {cmd:gen_mvcrrexampledata_plr.do})
-with the population parameters are in the package repository.{p_end}
+with the population parameters are in the package repository.  The examples
+are clickable and self-contained in the order shown.{p_end}
 
 {pstd}Standard two-effect design, projected to four lessons (reproduces
 version 1.4.0):{p_end}
 
-{phang}{cmd:. use mvcrrexampledata.dta, clear}{p_end}
-{phang}{cmd:. mvgstudy (Ahat Jhat pihat = p l|p)}{p_end}
-{phang}{cmd:. mvcrr, object(p) nfacet(l 4)}{p_end}
+{phang}{stata use mvcrrexampledata.dta, clear}{p_end}
+{phang}{stata mvgstudy (Ahat Jhat pihat = p l|p)}{p_end}
+{phang}{stata mvcrr, object(p) nfacet(l 4)}{p_end}
 
 {pstd}Observed facet sizes, and the deprecated synonym:{p_end}
 
-{phang}{cmd:. mvcrr, object(p) current}{p_end}
-{phang}{cmd:. mvcrr, object(p) nl(4)}{p_end}
+{phang}{stata mvcrr, object(p) current}{p_end}
+{phang}{stata mvcrr, object(p) nl(4)}{p_end}
+
+{pstd}Closed-form realization variance for disattenuated inputs
+(nu_0^2 = .01, nu_1^2 = .02, 150 utterances per lesson):{p_end}
+
+{phang}{stata mvcrr, object(p) nfacet(l 4) nu0(.01) nu1(.02) nutt(150)}{p_end}
+
+{pstd}Bootstrap BCa confidence intervals for the panel (G study must be
+bootstrapped first):{p_end}
+
+{phang}{stata mvgstudy (Ahat Jhat pihat = p l|p), bootstrap reps(1000) seed(90210)}{p_end}
+{phang}{stata mvcrr, object(p) nfacet(l 4) bootstrap}{p_end}
+
+{pstd}Weighting every teacher equally in the means (identical to the default
+on this balanced corpus; differs under unequal lessons per teacher):{p_end}
+
+{phang}{stata mvcrr, object(p) nfacet(l 4) pwmeans}{p_end}
+{phang}{stata mvcrr, object(p) nfacet(l 4) pwmeans bootstrap}{p_end}
+
+{hline}
 
 {pstd}Crossed persons x lessons x raters design ({cmd:mvcrrexampledata_plr.dta},
 200 x 6 x 3, generated with zero within-effect covariances so delta_beta ~ 0;
 true CRR_zc at four lessons and two raters is about .24); lessons random,
 then lessons fixed (their DCF joins the lambda penalty):{p_end}
 
-{phang}{cmd:. use mvcrrexampledata_plr.dta, clear}{p_end}
-{phang}{cmd:. mvgstudy (Ahat Jhat pihat = p l r p#l p#r l#r p#l#r)}{p_end}
-{phang}{cmd:. mvcrr, object(p) nfacet(l 4 r 2)}{p_end}
-{phang}{cmd:. mvcrr, object(p) nfacet(r 2) fix(l 4)}{p_end}
+{phang}{stata use mvcrrexampledata_plr.dta, clear}{p_end}
+{phang}{stata mvgstudy (Ahat Jhat pihat = p l r p#l p#r l#r p#l#r)}{p_end}
+{phang}{stata mvcrr, object(p) nfacet(l 4 r 2)}{p_end}
+{phang}{stata mvcrr, object(p) nfacet(r 2) fix(l 4)}{p_end}
 
-{pstd}Closed-form realization variance for disattenuated inputs
-(nu_0^2 = .01, nu_1^2 = .02, 150 utterances per lesson):{p_end}
+{hline}
 
-{phang}{cmd:. mvcrr, object(p) nfacet(l 4) nu0(.01) nu1(.02) nutt(150)}{p_end}
-
-{pstd}Bootstrap BCa confidence intervals for the panel (G study must be
-bootstrapped first):{p_end}
-
-{phang}{cmd:. mvgstudy (Ahat Jhat pihat = p l|p), bootstrap reps(1000) seed(90210)}{p_end}
-{phang}{cmd:. mvcrr, object(p) nfacet(l 4) bootstrap}{p_end}
-
-{pstd}Unbalanced corpus (unequal lessons per teacher), weighting every teacher
-equally in the means:{p_end}
-
-{phang}{cmd:. mvcrr, object(p) nfacet(l 4) pwmeans}{p_end}
-{phang}{cmd:. mvcrr, object(p) nfacet(l 4) pwmeans bootstrap}{p_end}
-
-{pstd}Single-replication mode (one pooled utterance set per teacher):{p_end}
+{pstd}Single-replication mode (one pooled utterance set per teacher; shown
+for syntax — requires your own one-row-per-object data with count variables):{p_end}
 
 {phang}{cmd:. mvgstudy (Ahat Jhat pihat = tid)}{p_end}
 {phang}{cmd:. mvcrr, object(tid) nl(4) nu0(.01) nu1(.02) nutt(150) n0var(n0) n1var(n1)}{p_end}
 
 {pstd}Clean up when finished:{p_end}
 
-{phang}{cmd:. mata drop c}{p_end}
+{phang}{stata mata drop c}{p_end}
 
 
 {marker results}{...}
