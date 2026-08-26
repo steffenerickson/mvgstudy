@@ -38,6 +38,12 @@
   (`aug_w`) so post-estimation commands can re-apply `fix()` per bootstrap
   replicate.
 
+### Added (example data)
+- `mvcrrexampledata_plr.dta`: a crossed persons x lessons x raters example
+  (200 x 6 x 3, `Ahat Jhat pihat`) for the generalized `mvcrr` examples;
+  generator `mvcrr_dev/gen_mvcrrexampledata_plr.do` documents the population
+  parameters and the closed-form CRR (~.24 at `nfacet(l 4 r 2)`).
+
 ### Fixed
 - `help mvgstudy` no longer lists "facet name prefix collision" as a known
   limitation: effect membership has been token-based since the 1.4.0 rewrite

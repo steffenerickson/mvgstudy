@@ -33,6 +33,7 @@ Existing users upgrading from 1.3.x or 1.4.0: reinstall with `replace` (as above
 | `_mvg_parse_equation.ado` | private helper used by `mvgstudy` |
 | `lmvgstudy.mlib` | compiled Mata library (class `mvgstudy` and its helpers) |
 | `mvgstudy.sthlp`, `mvdstudy.sthlp`, `mvcrr.sthlp` | help files |
+| `mvgstudyexampledata.dta`, `mvcrrexampledata.dta`, `mvcrrexampledata_plr.dta` | example datasets (`net get mvgstudy`) |
 
 The Mata source (`mvgstudy.mata`) and the build script (`build_mlib.do`) are in the repository for transparency but are not installed.
 

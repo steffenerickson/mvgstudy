@@ -485,6 +485,10 @@ prevalence the error is about .01 (Simulation 4, skew arm).
 {marker examples}{...}
 {title:Examples}
 
+{pstd}Both example datasets are installed by {cmd:net get mvgstudy}; their
+generators ({cmd:gen_mvcrrexampledata.do}, {cmd:gen_mvcrrexampledata_plr.do})
+with the population parameters are in the package repository.{p_end}
+
 {pstd}Standard two-effect design, projected to four lessons (reproduces
 version 1.4.0):{p_end}
 
@@ -497,9 +501,12 @@ version 1.4.0):{p_end}
 {phang}{cmd:. mvcrr, object(p) current}{p_end}
 {phang}{cmd:. mvcrr, object(p) nl(4)}{p_end}
 
-{pstd}Crossed persons x lessons x raters design; lessons random, then
-lessons fixed (their DCF joins the lambda penalty):{p_end}
+{pstd}Crossed persons x lessons x raters design ({cmd:mvcrrexampledata_plr.dta},
+200 x 6 x 3, generated with zero within-effect covariances so delta_beta ~ 0;
+true CRR_zc at four lessons and two raters is about .24); lessons random,
+then lessons fixed (their DCF joins the lambda penalty):{p_end}
 
+{phang}{cmd:. use mvcrrexampledata_plr.dta, clear}{p_end}
 {phang}{cmd:. mvgstudy (Ahat Jhat pihat = p l r p#l p#r l#r p#l#r)}{p_end}
 {phang}{cmd:. mvcrr, object(p) nfacet(l 4 r 2)}{p_end}
 {phang}{cmd:. mvcrr, object(p) nfacet(r 2) fix(l 4)}{p_end}
