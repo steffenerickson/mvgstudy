@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.4.0  24aug2026}{...}
+{* *! version 1.5.0  26aug2026}{...}
 {viewerdialog mvgstudy "dialog _mvgstudy"}{...}
 {viewerjumpto "Syntax" "mvgstudy##syntax"}{...}
 {viewerjumpto "Description" "mvgstudy##description"}{...}
@@ -176,8 +176,6 @@ o For fully-crossed or purely-nested designs, only the residual term need be giv
 
 {marker limitations}{...}
 {title:Known Limitations}
-
-{pstd}{bf:Facet name prefix collision.} The internal routine that detects which facets belong to an effect uses substring matching. If one facet name is a prefix of another (e.g., facets named {bf:p} and {bf:pr} in the same design), false matches will occur and EMCP estimates will be incorrect. Use facet names that are not prefixes of one another. Single-letter names are safe provided no name is a prefix of another name in the same termlist.{p_end}
 
 {pstd}{bf:Rank-deficient K matrix.} With extreme imbalance or very sparse cell structures the K coefficient matrix may be rank-deficient. The command falls back to the harmonic-mean approximation automatically and issues a warning; those results may be biased relative to the exact CP-terms solution.{p_end}
 

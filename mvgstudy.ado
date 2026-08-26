@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------//
-*! mvgstudy  version 1.4.0  24aug2026
-*! v1.4.0: one command per file; Mata moved to lmvgstudy.mlib; moremata no
-*!  longer required.  Requires Stata 19.  History: CHANGELOG.md.
+*! mvgstudy  version 1.5.0  26aug2026
+*! v1.5.0: mvcrr generalized (any design; covariance-inclusive panel); the
+*!  Mata library gains fix() augmentation weights.  Requires Stata 19.  History: CHANGELOG.md.
 //----------------------------------------------------------------------------//
 
 program mvgstudy, rclass

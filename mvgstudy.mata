@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------//
-// mvgstudy Mata source  version 1.4.0  24aug2026
+// mvgstudy Mata source  version 1.5.0  26aug2026
 // Compiled into lmvgstudy.mlib by build_mlib.do.  Not installed by the .pkg.
 //----------------------------------------------------------------------------//
 mata
@@ -161,10 +161,17 @@ class mvgstudy
 	void apply_fixed_facets()
 	void restore_fixed_facets()
 
-	// Phase 12: projected construct-relevant reliability (CRR)
+	// Phase 12/13: projected construct-relevant reliability (CRR), generalized
+	void _crr_setup()       // design-level setup; call before the three below
 	void compute_crr()
 	void run_crr_bootstrap()
-	void compute_crr_sr()   // Phase 12d: single-replication mode
+	void compute_crr_sr()   // single-replication mode
+
+	// Phase 13: resolved CRR design inputs, read by the mvcrr wrapper for display
+	string rowvector crr_facets     // random non-object facets (post-augmentation)
+	real rowvector   crr_facetn     // their D-study sizes as resolved
+	real scalar      crr_deps       // divisor applied to sigma2_eps
+	real scalar      crr_isbal      // 1 = balanced G-study (Wishart plug-in exact)
 
 	// Mata functions used in stata wrapper program
 	string matrix sortbylength()
@@ -281,11 +288,41 @@ class mvgstudy
 	real scalar    bca_acceleration()
 	real rowvector bca_ci()
 
-	// Phase 12: CRR internals
-	real rowvector _crr_resolve_idx()
-	real rowvector _crr_core()
-	real rowvector _pw_means()
-	real scalar    _crr_obj_col()
+	// Phase 12/13: CRR internals
+	real rowvector   _crr_resolve_idx()
+	real rowvector   _crr_core()
+	real rowvector   _pw_means()
+	real scalar      _crr_obj_col()
+	string rowvector _crr_facet_set()
+	real scalar      _crr_union_effect()
+	real matrix      _crr_psd()
+	real matrix      _crr_raw_stack()
+	void             _crr_push()
+
+	// Phase 11: augmentation weights (original effects x augmented effects);
+	// empty when no fixed facets are applied
+	real matrix      aug_w
+
+	// Phase 13: design-level CRR state (set by _crr_setup) and the per-effect
+	// detail of the last _crr_core call (read by _crr_push)
+	real rowvector   crr_idx
+	string scalar    crr_obj
+	real scalar      crr_objcol
+	real scalar      crr_oi
+	real scalar      crr_m
+	real scalar      crr_sr
+	real scalar      crr_srnl
+	real rowvector   crr_use
+	real rowvector   crr_div
+	real rowvector   crr_bccoef
+	real rowvector   crr_bcdf
+	real matrix      crr_pair
+	string rowvector crr_names
+	real matrix      crr_lastcomps
+	real matrix      crr_lastcov
+	real matrix      crr_lasterr
+	string colvector crr_lastnames
+	string colvector crr_lasterrnm
 
 	// Dstudy internal routines
 	void absolute_errors_effects()
@@ -2343,6 +2380,7 @@ void mvgstudy::apply_fixed_facets(string scalar      obj_name,
 	string rowvector eff_tokens, remaining_tokens, new_effects_row, new_facets_row
 	real rowvector   is_fixed_tok, keep, keep_fac
 	real colvector   new_facetlevels_col
+	real matrix      aug_full
 	transmorphic     new_covcomps
 
 	m    = length(effects)
@@ -2380,7 +2418,8 @@ void mvgstudy::apply_fixed_facets(string scalar      obj_name,
 		asarray(orig_covcomps, eff_key, asarray(covcomps, eff_key))
 	}
 
-	keep = J(1, m, 1)   // 1 = keep, 0 = absorbed into target
+	keep     = J(1, m, 1)   // 1 = keep, 0 = absorbed into target
+	aug_full = I(m)         // column j: weights of original effects in effect j
 
 	// --- Pass 1: augment targets ---
 	for (ei = 1; ei <= m; ei++) {
@@ -2446,12 +2485,14 @@ void mvgstudy::apply_fixed_facets(string scalar      obj_name,
 		target_key = "emcp" + strofreal(target_ei)
 		asarray(covcomps, target_key,
 		        asarray(covcomps, target_key) + asarray(covcomps, eff_key) / divisor)
+		aug_full[., target_ei] = aug_full[., target_ei] + aug_full[., ei] / divisor
 		keep[ei] = 0
 	}
 
 	// --- Pass 2: rebuild effects and covcomps with only kept effects ---
 	new_covcomps    = asarray_create()
 	new_effects_row = J(1, 0, "")
+	aug_w           = J(m, 0, .)
 	new_idx = 0
 	for (ei = 1; ei <= m; ei++) {
 		if (!keep[ei]) continue
@@ -2460,6 +2501,7 @@ void mvgstudy::apply_fixed_facets(string scalar      obj_name,
 		new_key = "emcp" + strofreal(new_idx)
 		asarray(new_covcomps, new_key, asarray(covcomps, eff_key))
 		new_effects_row = (new_effects_row, effects[ei])
+		aug_w           = (aug_w, aug_full[., ei])
 	}
 	effects  = new_effects_row
 	covcomps = new_covcomps
@@ -2496,75 +2538,534 @@ void mvgstudy::restore_fixed_facets()
 	covcomps     = orig_covcomps
 	facets       = orig_facets
 	facetlevels  = orig_facetlevels
+	aug_w        = J(0, 0, .)
 }
 
-// Phase 12: Projected construct-relevant reliability.
-// CRR = lambda x Erho2_DCF:PL evaluated at the planned number of lessons nL:
+// Phase 12/13: Projected construct-relevant reliability (CRR), generalized
+// to arbitrary crossed/nested designs and to the full covariance-component
+// matrices (spec_generalized_mvcrr.md rev. 3.1; derivation
+// generalized_crr_covariance_derivation.md Parts I-II).
 //
-//           Jbar^2 s_pi
-//   CRR = ----------------------------------------------------------------
-//           Jbar^2 s_pi + s_aP + s_jP (mupi^2 + s_pi)
-//         + [ s_aL + (Jbar^2 + s_jP) s_piL
-//             + s_jL (mupi^2 + s_pi + s_piL) + sigma2_eps ] / nL
+// The command always reports the five-member panel:
+//   CRR_zc   zero-covariance coefficient (v1.4.0 formulas) - ranking statistic
+//   dbeta    alignment diagnostic beta - Jbar (assumption check)
+//   CRR_orth naive orthogonal-decomposition CRR (upper edge of the bracket)
+//   CRR_bc   Wishart-moment bias-corrected CRR (lower edge)
+//   Jbar, Abar   separation and intercept companions
 //
-// (the universe-score variance cancels between lambda and the coefficient).
-// Components come from covcomps: emcp1 = person (P) matrix, emcp2 = L:P matrix,
-// diagonals at the A, J, prevalence variable positions.  Means come from Y_data.
-// sig_mode: 0 = sigma2_eps 0 (default; utterance-sampling noise is already
-//               absorbed in the estimated L:P components),
-//           1 = user-supplied sigma2_eps (s1),
-//           2 = closed form (mupi*nu1^2 + (1-mupi)*nu0^2
-//                            + mupi*(1-mupi)*Jbar^2) / n
-//               with s1 = nu0^2, s2 = nu1^2, s3 = n (utterances per lesson).
-// Negative component estimates are truncated at zero (count reported); if
-// truncation drives both person-level DCF components to zero, the ub flag is
-// set (lambda = 1 by construction; CRR is an upper bound).
-// Results go to the 9 Stata scalars named in scnames_str, in order:
-// crr, Abar, lambda, erho2_dcfpl, Jbar, mupi, sigmae, ntrunc, ub;
-// the 2x3 post-truncation component matrix (rows P, L_P; cols A, J, prev)
-// goes to comps_name.
-void mvgstudy::compute_crr(string scalar avn, string scalar jvn,
-                           string scalar pvn,
-                           real scalar nL, real scalar sig_mode,
-                           real scalar s1, real scalar s2, real scalar s3,
-                           real scalar pw,
-                           string scalar comps_name, string scalar scnames_str)
+// Design-level structures are built once per mvcrr call by _crr_setup():
+// which effects enter (object effect + relative-error effects), the D-study
+// divisor per effect, the union effect of every ordered pair of effects
+// (derivation II.2), and the coefficients that express the object component
+// as a linear combination of the design's mean-square matrices (for the
+// Wishart plug-in of CRR_bc).  The shared core _crr_core() then evaluates the
+// whole panel for one set of raw component matrices and one row of means,
+// and is used identically for the point estimate and for every bootstrap and
+// jackknife replicate so the two can never diverge.
+
+// Sorted facet set of an effect string ("h#i|p" -> ("h","i","p")).
+string rowvector mvgstudy::_crr_facet_set(string scalar eff)
 {
-	real rowvector   idx, means, res
-	real matrix      comps
+	string colvector toks
+
+	toks = tokens(subinstr(subinstr(eff, "|", " ", .), "#", " ", .))'
+	if (rows(toks) == 0) return(J(1, 0, ""))
+	return(sort(toks, 1)')
+}
+
+// Index of the effect whose facet set equals the union of the facet sets of
+// effects e1 and e2; 0 if the design has no such effect.
+real scalar mvgstudy::_crr_union_effect(real scalar e1, real scalar e2)
+{
+	string rowvector u
+	string scalar    key
+	real scalar      ei
+
+	u   = uniqrows((_crr_facet_set(effects[e1]), _crr_facet_set(effects[e2]))')'
+	key = invtokens(sort(u', 1)')
+	for (ei = 1; ei <= length(effects); ei++) {
+		if (invtokens(_crr_facet_set(effects[ei])) == key) return(ei)
+	}
+	return(0)
+}
+
+// Nearest-PSD repair of a symmetric matrix by eigenvalue clipping (derivation
+// I.6).  Sets fl = 1 when a negative eigenvalue was clipped.
+real matrix mvgstudy::_crr_psd(real matrix S, real scalar fl)
+{
+	real matrix    X, out
+	real rowvector L
+
+	X  = .
+	L  = .
+	symeigensystem(S, X, L)
+	fl = 0
+	if (min(L) < -1e-12) {
+		fl  = 1
+		L   = L :* (L :> 0)
+		out = X * diag(L) * X'
+		return((out + out') / 2)
+	}
+	return(S)
+}
+
+// Design-level setup for mvcrr; must precede _crr_core / compute_crr /
+// run_crr_bootstrap.  Operates on the (possibly fix()-augmented) design.
+//   obj        object-of-measurement facet; must also be an effect string
+//   avn/jvn/pvn  names of the A, J, prevalence outcome variables
+//   nf_names/nf_ns  nfacet() facet names and D-study sizes (ignored when
+//              use_current = 1, which takes the observed facet levels)
+//   sr_mode    1 = single-replication mode (one-effect design; the lesson
+//              side is synthesized inside the core with divisor sr_nl)
+// Effects that enter: the object effect plus every effect containing the
+// object facet (relative-error convention, as in mvdstudy errortype(relative)).
+// Divisor d(e) = product of the D-study sizes of the random non-object facets
+// of e; d(eps) = product over all random non-object facets.
+void mvgstudy::_crr_setup(string scalar obj,
+                          string scalar avn, string scalar jvn, string scalar pvn,
+                          string rowvector nf_names, real rowvector nf_ns,
+                          real scalar use_current,
+                          real scalar sr_mode, real scalar sr_nl)
+{
+	real scalar      m, ei, e2, fi, fk, found, nran, u, m_orig
+	string rowvector ranfac, fs
+	real rowvector   ran_n
+	string scalar    missing_list
+	real matrix      aw, invP
+
+	crr_idx   = _crr_resolve_idx(avn, jvn, pvn)
+	crr_obj   = obj
+	crr_sr    = sr_mode
+	crr_isbal = is_bal
+
+	// Object facet column in Z_data (for pwmeans)
+	crr_objcol = 0
+	for (fk = 1; fk <= length(facets); fk++) {
+		if (facets[fk] == obj) crr_objcol = fk
+	}
+	if (crr_objcol == 0) {
+		errprintf("mvcrr: object(%s) is not a facet of the design\n", obj)
+		exit(198)
+	}
+
+	m      = length(effects)
+	crr_oi = 0
+	for (ei = 1; ei <= m; ei++) {
+		if (effects[ei] == obj) crr_oi = ei
+	}
+	if (crr_oi == 0) {
+		errprintf("mvcrr: object(%s) is not a main effect of the design (after fix() augmentation)\n", obj)
+		exit(198)
+	}
+
+	if (sr_mode) {
+		if (m != 1) {
+			errprintf("mvcrr: single-replication mode requires a one-effect design\n")
+			exit(198)
+		}
+		crr_m     = 2
+		crr_use   = (1, 1)
+		crr_div   = (1, sr_nl)
+		crr_pair  = (1, 2 \ 2, 2)
+		crr_deps  = sr_nl
+		crr_names  = (obj, "L_" + obj)
+		crr_srnl   = sr_nl
+		crr_facets = J(1, 0, "")
+		crr_facetn = J(1, 0, .)
+	}
+	else {
+		// Random non-object facets and their D-study sizes
+		ranfac = J(1, 0, "")
+		ran_n  = J(1, 0, .)
+		for (fk = 1; fk <= length(facets); fk++) {
+			if (facets[fk] == obj) continue
+			ranfac = (ranfac, facets[fk])
+			ran_n  = (ran_n, (use_current ? facetlevels[fk] : .))
+		}
+		nran = length(ranfac)
+		if (!use_current) {
+			for (fi = 1; fi <= length(nf_names); fi++) {
+				found = 0
+				for (fk = 1; fk <= nran; fk++) {
+					if (ranfac[fk] == nf_names[fi]) {
+						ran_n[fk] = nf_ns[fi]
+						found     = 1
+					}
+				}
+				if (!found) {
+					errprintf("mvcrr: nfacet() facet '%s' is not a random non-object facet of the design\n",
+					          nf_names[fi])
+					exit(198)
+				}
+			}
+			missing_list = ""
+			for (fk = 1; fk <= nran; fk++) {
+				if (missing(ran_n[fk])) missing_list = missing_list + " " + ranfac[fk]
+			}
+			if (missing_list != "") {
+				errprintf("mvcrr: nfacet() must give a D-study size for every random non-object facet; missing:%s\n",
+				          missing_list)
+				exit(198)
+			}
+		}
+		crr_m     = m
+		crr_use   = J(1, m, 0)
+		crr_div   = J(1, m, .)
+		crr_names = J(1, m, "")
+		for (ei = 1; ei <= m; ei++) {
+			crr_names[ei] = subinstr(subinstr(effects[ei], "#", "_", .), "|", "_", .)
+			if (ei == crr_oi | _facet_in_effect(effects[ei], obj)) crr_use[ei] = 1
+			if (!crr_use[ei]) continue
+			crr_div[ei] = 1
+			fs = _crr_facet_set(effects[ei])
+			for (fi = 1; fi <= length(fs); fi++) {
+				for (fk = 1; fk <= nran; fk++) {
+					if (ranfac[fk] == fs[fi]) crr_div[ei] = crr_div[ei] * ran_n[fk]
+				}
+			}
+		}
+		crr_deps = (nran > 0 ? exp(sum(ln(ran_n))) : 1)
+		crr_srnl = .
+		// Union effect of every ordered pair (derivation II.2)
+		crr_pair = J(m, m, 0)
+		for (ei = 1; ei <= m; ei++) {
+			for (e2 = 1; e2 <= m; e2++) {
+				u = _crr_union_effect(ei, e2)
+				if (u == 0) {
+					errprintf("mvcrr: no effect of the design has the facets of '%s' and '%s' combined; the termlist must be a complete decomposition\n",
+					          effects[ei], effects[e2])
+					exit(198)
+				}
+				crr_pair[ei, e2] = u
+			}
+		}
+		crr_facetn = ran_n
+		crr_facets = ranfac
+	}
+
+	// Wishart plug-in coefficients for CRR_bc (derivation I.8, generalized):
+	// the object component is coef * (stacked mean-square matrices), with
+	// coef = aug_w[., O]' * inv(P) over the ORIGINAL design's effects.
+	m_orig = rows(P)
+	aw     = (rows(aug_w) == 0 ? I(m_orig) : aug_w)
+	crr_bccoef = J(1, 0, .)
+	crr_bcdf   = J(1, 0, .)
+	if (m_orig > 0 & rows(aw) == m_orig & cols(aw) >= crr_oi & length(df) == m_orig) {
+		if (rank(P) == m_orig) {
+			invP       = luinv(P)
+			crr_bccoef = (aw[., crr_oi])' * invP
+			crr_bcdf   = (rows(df) > 1 ? df' : df)
+		}
+	}
+}
+
+// Stack the raw (original-design) component matrices from an asarray with
+// keys emcp1..emcpM into an (M*k) x k matrix.
+real matrix mvgstudy::_crr_raw_stack(transmorphic store, real scalar m_orig)
+{
+	real matrix out
+	real scalar ei
+
+	out = J(0, cols(Y_data), .)
+	for (ei = 1; ei <= m_orig; ei++) {
+		out = out \ asarray(store, "emcp" + strofreal(ei))
+	}
+	return(out)
+}
+
+// Shared CRR core (derivation Parts I-II; spec rev. 3.1 panel).
+// Inputs
+//   raw    (M*k) x k stack of the ORIGINAL design's component matrices
+//          (pre-augmentation, pre-disattenuation, pre-truncation)
+//   means  1 x k outcome means (Abar, Jbar, mupi at crr_idx positions)
+//   sm     k x k sampling-covariance matrix subtracted from the object
+//          component (single-replication disattenuation; zeros otherwise)
+//   sig_mode/s1/s2/s3  sigma2_eps resolution: 0 = 0; 1 = s1;
+//          2 = closed form (mupi*s2 + (1-mupi)*s1 + mupi*(1-mupi)*Jbar^2)/s3
+//   sr_rho single-replication rho_lp (ignored unless crr_sr = 1)
+// Two parallel paths are evaluated from the same inputs:
+//   zc    off-diagonals ignored; negative diagonals truncated at 0 (exactly
+//         the v1.4.0 computation for the p, l|p design)
+//   orth  negative diagonals truncated by zeroing their row and column, then
+//         PSD repair; quadratic forms + second-order terms with covariances;
+//         beta = Jbar + (s_api + mupi*s_jpi)/s_pi at the object effect,
+//         signal beta^2 s_pi, penalty V(O) - signal (>= 0 by Cauchy-Schwarz)
+// The second-order term at effect u is the ordered-pair sum
+//   S(u) = sum over (e1,e2) with e1 v e2 = u of [ j(e1)pi(e2) + s_jpi(e1)s_jpi(e2) ]
+// and V(u) = w'S_u w + S(u), w = (1, mupi, Jbar)' over (A, J, pi).
+// Errors: err = sum over relative-error effects V(u)/d(u) + sigma2_eps/d(eps).
+// CRR_bc: Var(Chat) = sum_m coef_m^2 sum_{ab} w_a w_b (M_ac M_bd + M_ad M_bc)/df_m
+//   with M_m = sum_e P[m,e] raw_e (plug-in expected mean squares), weights
+//   (Jbar, 1, mupi) over the entries (pi,pi), (a,pi), (j,pi); reduces to
+//   varC() of 08_simulation_4.do for the balanced p, l|p design.
+// Returns the fixed-layout rowvector
+//    1 crr_zc     2 Abar      3 lam_zc     4 erho2_zc   5 sigmae
+//    6 ntrunc     7 ub        8 dbeta      9 crr_orth  10 lam_orth
+//   11 crr_bc    12 lam_bc   13 erho2_orth 14 psdfix   15 beta
+//   16 Jbar      17 mupi     18 VO_zc     19 VO_orth   20 err_zc
+//   21 err_orth  22 varC     23 num_zc    24 num_orth  25 num_bc
+// and leaves per-effect detail in crr_lastcomps (used effects x 3, zc
+// diagonals), crr_lastcov (used effects x 6, orth matrices as used) and
+// crr_lasterr (error effects x 3: divisor, err_zc, err_orth).
+real rowvector mvgstudy::_crr_core(real matrix raw, real rowvector means,
+                                   real matrix sm,
+                                   real scalar sig_mode, real scalar s1,
+                                   real scalar s2, real scalar s3,
+                                   real scalar sr_rho)
+{
+	real scalar    k, m_orig, m, ei, e2, u, ai, ji, pvi, i, fl
+	real scalar    Abar, Jbar, mupi, sigmae, ntrunc, tr_person, ub, psdfix
+	real scalar    num_zc, VO_zc, pen_zc, err_zc, den_zc, lam_zc, erho2_zc, crr_zc
+	real scalar    beta, num_o, VO_o, err_o, den_o, lam_o, crr_o, erho2_o, dbeta
+	real scalar    Chat, varC, num_bc, lam_bc, crr_bc, nuse, nerr, r, a, b
+	real rowvector idx3, ivec, jvec, w_bc
+	real colvector w
+	real matrix    aw, comps, D, A, Mm, ix, Dst, Ast
+	real rowvector Vz, Vo, Sz, So
+
+	k      = cols(raw)
+	m_orig = rows(raw) / k
+	m      = crr_m
+	ai     = crr_idx[1]
+	ji     = crr_idx[2]
+	pvi    = crr_idx[3]
+	idx3   = (ai, ji, pvi)
+	Abar   = means[ai]
+	Jbar   = means[ji]
+	mupi   = means[pvi]
+	w      = (1 \ mupi \ Jbar)
+
+	// --- Augmented (fix) components; SR mode subtracts the sampling matrix ---
+	// Dst/Ast hold the 3x3 (A, J, pi) block of every effect, stacked:
+	// rows 3u-2..3u are effect u.  Dst = zc path, Ast = orth path.
+	aw  = (rows(aug_w) == 0 ? I(m_orig) : aug_w)
+	Dst = J(3 * m, 3, 0)
+	Ast = J(3 * m, 3, 0)
+	for (u = 1; u <= (crr_sr ? 1 : m); u++) {
+		comps = J(k, k, 0)
+		for (ei = 1; ei <= m_orig; ei++) {
+			if (aw[ei, u] != 0) comps = comps + aw[ei, u] * raw[((ei-1)*k+1)..(ei*k), .]
+		}
+		if (u == crr_oi) comps = comps - sm
+		Ast[(3*u-2)..(3*u), .] = comps[idx3, idx3]
+	}
+
+	// --- Truncation: zc (diagonals only) and orth (row/col zeroing + PSD) ---
+	ntrunc    = 0
+	tr_person = 0
+	psdfix    = 0
+	for (u = 1; u <= (crr_sr ? 1 : m); u++) {
+		A = Ast[(3*u-2)..(3*u), .]
+		D = diag((A[1,1], A[2,2], A[3,3]))
+		for (i = 1; i <= 3; i++) {
+			if (A[i, i] < 0) {
+				if (crr_use[u]) {
+					ntrunc++
+					if (u == crr_oi & i < 3) tr_person++
+				}
+				D[i, i] = 0
+				A[i, .] = J(1, 3, 0)
+				A[., i] = J(3, 1, 0)
+			}
+		}
+		fl = 0
+		A  = _crr_psd(A, fl)
+		if (crr_use[u]) psdfix = psdfix + fl
+		Dst[(3*u-2)..(3*u), .] = D
+		Ast[(3*u-2)..(3*u), .] = A
+	}
+	if (crr_sr) {
+		// Lesson side as a D-study parameter: (0, 0, rho_lp * s_pi) per path
+		Dst[4..6, .] = diag((0, 0, sr_rho * Dst[3, 3]))
+		Ast[4..6, .] = diag((0, 0, sr_rho * Ast[3, 3]))
+	}
+	D  = Dst[(3*crr_oi-2)..(3*crr_oi), .]
+	ub = (tr_person > 0 & D[1,1] == 0 & D[2,2] == 0)
+
+	// --- Second-order terms by the ordered-pair union rule ---
+	Sz = J(1, m, 0)
+	So = J(1, m, 0)
+	for (ei = 1; ei <= m; ei++) {
+		for (e2 = 1; e2 <= m; e2++) {
+			u     = crr_pair[ei, e2]
+			Sz[u] = Sz[u] + Dst[3*ei-1, 2] * Dst[3*e2, 3]
+			So[u] = So[u] + Ast[3*ei-1, 2] * Ast[3*e2, 3] + Ast[3*ei-1, 3] * Ast[3*e2-1, 3]
+		}
+	}
+	Vz = J(1, m, .)
+	Vo = J(1, m, .)
+	for (u = 1; u <= m; u++) {
+		if (!crr_use[u]) continue
+		D     = Dst[(3*u-2)..(3*u), .]
+		A     = Ast[(3*u-2)..(3*u), .]
+		Vz[u] = w' * D * w + Sz[u]
+		Vo[u] = w' * A * w + So[u]
+	}
+
+	// --- sigma2_eps ---
+	if      (sig_mode == 1) sigmae = s1
+	else if (sig_mode == 2) sigmae = (mupi*s2 + (1-mupi)*s1
+	                                  + mupi*(1-mupi)*Jbar^2) / s3
+	else                    sigmae = 0
+
+	// --- Errors ---
+	err_zc = sigmae / crr_deps
+	err_o  = sigmae / crr_deps
+	for (u = 1; u <= m; u++) {
+		if (!crr_use[u] | u == crr_oi) continue
+		err_zc = err_zc + Vz[u] / crr_div[u]
+		err_o  = err_o  + Vo[u] / crr_div[u]
+	}
+
+	// --- Zero-covariance path (v1.4.0 formulas) ---
+	D      = Dst[(3*crr_oi-2)..(3*crr_oi), .]
+	num_zc = Jbar^2 * D[3, 3]
+	VO_zc  = Vz[crr_oi]
+	pen_zc = VO_zc - num_zc
+	den_zc = VO_zc + err_zc
+	lam_zc   = (VO_zc > 0 ? num_zc / VO_zc : .)
+	erho2_zc = (den_zc > 0 ? VO_zc / den_zc : .)
+	crr_zc   = (den_zc > 0 ? num_zc / den_zc : .)
+
+	// --- Orthogonal decomposition (derivation I.2 / II.3) ---
+	A     = Ast[(3*crr_oi-2)..(3*crr_oi), .]
+	VO_o  = Vo[crr_oi]
+	beta  = (A[3,3] > 0 ? Jbar + (A[1,3] + mupi*A[2,3]) / A[3,3] : Jbar)
+	dbeta = beta - Jbar
+	num_o = beta^2 * A[3,3]
+	if (num_o > VO_o) num_o = VO_o           // Cauchy-Schwarz; numeric noise only
+	den_o   = VO_o + err_o
+	lam_o   = (VO_o > 0 ? num_o / VO_o : .)
+	erho2_o = (den_o > 0 ? VO_o / den_o : .)
+	crr_o   = (den_o > 0 ? num_o / den_o : .)
+
+	// --- Bias-corrected orthogonal estimator (derivation I.8) ---
+	varC = .
+	if (length(crr_bccoef) == m_orig & m_orig > 0) {
+		w_bc = (Jbar, 1, mupi)
+		ix   = (3, 3 \ 1, 3 \ 2, 3)
+		varC = 0
+		for (ei = 1; ei <= m_orig; ei++) {
+			if (crr_bccoef[ei] == 0 | missing(crr_bcdf[ei]) | crr_bcdf[ei] <= 0) continue
+			Mm = J(k, k, 0)
+			for (e2 = 1; e2 <= m_orig; e2++) {
+				if (P[ei, e2] != 0) Mm = Mm + P[ei, e2] * raw[((e2-1)*k+1)..(e2*k), .]
+			}
+			Mm = Mm[idx3, idx3]
+			r  = 0
+			for (a = 1; a <= 3; a++) {
+				for (b = 1; b <= 3; b++) {
+					r = r + w_bc[a] * w_bc[b] * (Mm[ix[a,1], ix[b,1]] * Mm[ix[a,2], ix[b,2]] + Mm[ix[a,1], ix[b,2]] * Mm[ix[a,2], ix[b,1]])
+				}
+			}
+			varC = varC + crr_bccoef[ei]^2 * r / crr_bcdf[ei]
+		}
+	}
+	Chat   = Jbar * A[3,3] + A[1,3] + mupi * A[2,3]
+	num_bc = .
+	lam_bc = .
+	crr_bc = .
+	if (!missing(varC)) {
+		num_bc = (A[3,3] > 0 ? max((0, Chat^2 - varC)) / A[3,3] : 0)
+		if (num_bc > VO_o) num_bc = VO_o
+		lam_bc = (VO_o > 0 ? num_bc / VO_o : .)
+		crr_bc = (den_o > 0 ? num_bc / den_o : .)
+	}
+
+	// --- Per-effect detail for the wrapper's tables ---
+	nuse = sum(crr_use)
+	nerr = nuse - 1
+	crr_lastcomps = J(nuse, 3, .)
+	crr_lastcov   = J(nuse, 6, .)
+	crr_lasterr   = J(nerr, 3, .)
+	crr_lastnames = J(nuse, 1, "")
+	crr_lasterrnm = J(nerr, 1, "")
+	i = 0
+	r = 0
+	for (u = 1; u <= m; u++) {
+		if (!crr_use[u]) continue
+		i++
+		D = Dst[(3*u-2)..(3*u), .]
+		A = Ast[(3*u-2)..(3*u), .]
+		crr_lastcomps[i, .] = (D[1,1], D[2,2], D[3,3])
+		crr_lastcov[i, .]   = (A[1,1], A[2,2], A[3,3], A[1,2], A[1,3], A[2,3])
+		crr_lastnames[i]    = crr_names[u]
+		if (u == crr_oi) continue
+		r++
+		crr_lasterr[r, .] = (crr_div[u], Vz[u] / crr_div[u], Vo[u] / crr_div[u])
+		crr_lasterrnm[r]  = crr_names[u]
+	}
+
+	return((crr_zc, Abar, lam_zc, erho2_zc, sigmae, ntrunc, ub, dbeta, crr_o,
+	        lam_o, crr_bc, lam_bc, erho2_o, psdfix, beta, Jbar, mupi, VO_zc,
+	        VO_o, err_zc, err_o, varC, num_zc, num_o, num_bc))
+}
+
+// Point estimate of the panel (standard mode).  pw = 1 uses person-weighted
+// means (mean of within-object means).  Pushes the 25 core results to the
+// Stata scalars named in scnames_str (same order as the core's layout), the
+// zc component table to comps_name, the orth covariance table to cov_name,
+// and the per-effect error table to err_name.
+void mvgstudy::compute_crr(real scalar pw, real scalar sig_mode,
+                           real scalar s1, real scalar s2, real scalar s3,
+                           string scalar comps_name, string scalar cov_name,
+                           string scalar err_name, string scalar scnames_str)
+{
+	real rowvector means
+	real matrix    raw
+	transmorphic   src
+
+	if (pw) means = _pw_means(Y_data, Z_data[., crr_objcol])
+	else    means = mean(Y_data)
+	src = (rows(aug_w) == 0 ? covcomps : orig_covcomps)
+	raw = _crr_raw_stack(src, rows(P))
+	_crr_push(raw, means, J(cols(Y_data), cols(Y_data), 0), sig_mode, s1, s2, s3, .,
+	          comps_name, cov_name, err_name, scnames_str)
+}
+
+// Run the core once and push every result to Stata (shared by compute_crr
+// and compute_crr_sr).
+void mvgstudy::_crr_push(real matrix raw, real rowvector means, real matrix sm,
+                         real scalar sig_mode, real scalar s1, real scalar s2,
+                         real scalar s3, real scalar sr_rho,
+                         string scalar comps_name, string scalar cov_name,
+                         string scalar err_name, string scalar scnames_str)
+{
+	real rowvector   res
 	string rowvector scn
 	string matrix    rstripe, cstripe
+	real scalar      q
 
-	scn   = tokens(scnames_str)
-	idx   = _crr_resolve_idx(avn, jvn, pvn)
-	// pw = 1: person-weighted means (mean of within-object means; differs from
-	// the observation-weighted grand mean only under unbalance)
-	if (pw) means = _pw_means(Y_data, Z_data[., _crr_obj_col()])
-	else    means = mean(Y_data)
-	res   = _crr_core(asarray(covcomps, "emcp1"), asarray(covcomps, "emcp2"),
-	                  means, idx[1], idx[2], idx[3], nL, sig_mode, s1, s2, s3)
-	// res: (crr, Abar, lambda, erho2, sigmae, ntrunc, ub,
-	//       s_aP, s_jP, s_pi, s_aL, s_jL, s_piL)  -- see _crr_core
+	scn = tokens(scnames_str)
+	res = _crr_core(raw, means, sm, sig_mode, s1, s2, s3, sr_rho)
 
-	// Push results to Stata
-	comps = (res[8], res[9], res[10] \ res[11], res[12], res[13])
-	st_matrix(comps_name, comps)
-	rstripe        = J(2, 2, "")
-	rstripe[., 2]  = ("P" \ "L_P")
+	st_matrix(comps_name, crr_lastcomps)
+	rstripe        = J(rows(crr_lastnames), 2, "")
+	rstripe[., 2]  = crr_lastnames
 	cstripe        = J(3, 2, "")
-	cstripe[., 2]  = (avn \ jvn \ pvn)
+	cstripe[., 2]  = (varlist[crr_idx[1]] \ varlist[crr_idx[2]] \ varlist[crr_idx[3]])
 	st_matrixrowstripe(comps_name, rstripe)
 	st_matrixcolstripe(comps_name, cstripe)
 
-	st_numscalar(scn[1], res[1])          // crr
-	st_numscalar(scn[2], res[2])          // Abar
-	st_numscalar(scn[3], res[3])          // lambda
-	st_numscalar(scn[4], res[4])          // erho2_dcfpl
-	st_numscalar(scn[5], means[idx[2]])   // Jbar
-	st_numscalar(scn[6], means[idx[3]])   // mupi
-	st_numscalar(scn[7], res[5])          // sigmae
-	st_numscalar(scn[8], res[6])          // ntrunc
-	st_numscalar(scn[9], res[7])          // ub
+	st_matrix(cov_name, crr_lastcov)
+	cstripe        = J(6, 2, "")
+	cstripe[., 2]  = ("var_A" \ "var_J" \ "var_pi" \ "cov_AJ" \ "cov_Api" \ "cov_Jpi")
+	st_matrixrowstripe(cov_name, rstripe)
+	st_matrixcolstripe(cov_name, cstripe)
+
+	// A design with no error effect (every non-object facet fixed) has no
+	// rows; push a 1x3 missing placeholder so the Stata matrix exists.
+	st_matrix(err_name, (rows(crr_lasterr) > 0 ? crr_lasterr : J(1, 3, .)))
+	if (rows(crr_lasterr) > 0) {
+		rstripe        = J(rows(crr_lasterrnm), 2, "")
+		rstripe[., 2]  = crr_lasterrnm
+		cstripe        = J(3, 2, "")
+		cstripe[., 2]  = ("divisor" \ "err_zc" \ "err_orth")
+		st_matrixrowstripe(err_name, rstripe)
+		st_matrixcolstripe(err_name, cstripe)
+	}
+
+	for (q = 1; q <= 25; q++) st_numscalar(scn[q], res[q])
 }
 
 // Person-weighted outcome means: mean over groups of within-group means,
@@ -2587,8 +3088,9 @@ real rowvector mvgstudy::_pw_means(real matrix Y, real colvector zcol)
 	return(mean(acc))
 }
 
-// Column of Z_data holding the object of measurement, defined as the first
-// facet of effects[1] (mvcrr validates object() == effects[1] before calling).
+// Column of Z_data holding the first facet of effects[1]; used by
+// run_bootstrap to store per-replicate person-weighted means (mvcrr requires
+// object() to be this facet when pwmeans is combined with bootstrap).
 real scalar mvgstudy::_crr_obj_col()
 {
 	string scalar fac
@@ -2625,111 +3127,24 @@ real rowvector mvgstudy::_crr_resolve_idx(string scalar avn,
 	return((ai, ji, pvi))
 }
 
-// Shared CRR computation core, used by compute_crr (point estimate) and
-// run_crr_bootstrap (per-rep values) so the two can never diverge.
-// Inputs: M_P/M_L = person and lesson-within-person component matrices,
-// means = row vector of outcome means, ai/ji/pvi = variable positions,
-// nL, sig_mode/s1/s2/s3 as documented at compute_crr.
-// Returns (crr, Abar, lambda, erho2_dcfpl, sigmae, ntrunc, ub,
-//          s_aP, s_jP, s_pi, s_aL, s_jL, s_piL) with components
-// post-truncation.
-real rowvector mvgstudy::_crr_core(real matrix M_P, real matrix M_L,
-                                    real rowvector means,
-                                    real scalar ai, real scalar ji,
-                                    real scalar pvi,
-                                    real scalar nL, real scalar sig_mode,
-                                    real scalar s1, real scalar s2,
-                                    real scalar s3)
-{
-	real scalar Abar, Jbar, mupi, s_aP, s_jP, s_pi, s_aL, s_jL, s_piL
-	real scalar sigmae, ntrunc, ub, tr_person
-	real scalar num_pi, num_tau, err_L, denom, lam, erho2, crr
-
-	Abar  = means[ai]
-	Jbar  = means[ji]
-	mupi  = means[pvi]
-
-	s_aP  = M_P[ai,  ai]
-	s_jP  = M_P[ji,  ji]
-	s_pi  = M_P[pvi, pvi]
-	s_aL  = M_L[ai,  ai]
-	s_jL  = M_L[ji,  ji]
-	s_piL = M_L[pvi, pvi]
-
-	// Truncate negative estimates at zero (paper's convention); count them
-	ntrunc    = 0
-	tr_person = 0
-	if (s_aP < 0) {
-		s_aP = 0
-		ntrunc++
-		tr_person++
-	}
-	if (s_jP < 0) {
-		s_jP = 0
-		ntrunc++
-		tr_person++
-	}
-	if (s_pi < 0) {
-		s_pi = 0
-		ntrunc++
-	}
-	if (s_aL < 0) {
-		s_aL = 0
-		ntrunc++
-	}
-	if (s_jL < 0) {
-		s_jL = 0
-		ntrunc++
-	}
-	if (s_piL < 0) {
-		s_piL = 0
-		ntrunc++
-	}
-	// Upper-bound flag: truncation removed all person-level DCF (lambda = 1)
-	ub = (tr_person > 0 & s_aP == 0 & s_jP == 0)
-
-	// Resolve sigma2_eps
-	if      (sig_mode == 1) sigmae = s1
-	else if (sig_mode == 2) sigmae = (mupi*s2 + (1-mupi)*s1
-	                                  + mupi*(1-mupi)*Jbar^2) / s3
-	else                    sigmae = 0
-
-	// CRR (chapter eq. line 387, extended to the PL coefficient of line 267)
-	num_pi  = Jbar^2 * s_pi
-	num_tau = num_pi + s_aP + s_jP*(mupi^2 + s_pi)
-	err_L   = s_aL + (Jbar^2 + s_jP)*s_piL + s_jL*(mupi^2 + s_pi + s_piL) + sigmae
-	denom   = num_tau + err_L/nL
-
-	lam   = (num_tau > 0 ? num_pi  / num_tau : .)
-	erho2 = (denom   > 0 ? num_tau / denom   : .)
-	crr   = (denom   > 0 ? num_pi  / denom   : .)
-
-	return((crr, Abar, lam, erho2, sigmae, ntrunc, ub,
-	        s_aP, s_jP, s_pi, s_aL, s_jL, s_piL))
-}
-
-// Phase 12b: Bootstrap BCa confidence intervals for CRR.
-// Propagates the G-study bootstrap reps (boot_store/jack_store, plus the
-// per-rep means stored in boot_means/jack_means) through the CRR core and
-// summarizes with BCa intervals — the same pattern as run_dstudy_bootstrap.
-// Requires a prior mvgstudy run with the bootstrap option.
-// Pushes a 4 x 4 summary matrix to table_name:
-//   rows crr, Abar, lambda, erho2_dcfpl; cols estimate, se, ci_lo, ci_hi.
-void mvgstudy::run_crr_bootstrap(string scalar avn, string scalar jvn,
-                                  string scalar pvn,
-                                  real scalar nL, real scalar sig_mode,
+// Bootstrap BCa confidence intervals for the panel.  Propagates the stored
+// G-study bootstrap/jackknife replicates (original-design component matrices
+// in boot_store/jack_store plus per-replicate means) through _crr_core; the
+// fix() augmentation is applied per replicate through aug_w.  Requires a
+// prior mvgstudy run with the bootstrap option.  Pushes a 10 x 4 summary to
+// table_name: rows crr, Abar, lambda, erho2 (zc path), dbeta, crr_orth,
+// lambda_orth, crr_bc, lambda_bc, Jbar; cols estimate, se, ci_lo, ci_hi.
+void mvgstudy::run_crr_bootstrap(real scalar pw, real scalar sig_mode,
                                   real scalar s1, real scalar s2,
-                                  real scalar s3,
-                                  real scalar pw,
-                                  real scalar ci_alpha,
+                                  real scalar s3, real scalar ci_alpha,
                                   string scalar table_name)
 {
-	real scalar      k_out, b, j_p, q, n_jack, se, a
-	real rowvector   idx, th_full, res, ci, means_full, mrow
-	real matrix      boot1, boot2, jack1, jack2, bs, jk, summ
-	real matrix      bmeans, jmeans
+	real scalar      k, m_orig, b, j_p, q, n_jack, se, a, ei, nq
+	real rowvector   th_full, res, ci, means_full, mrow, qidx
+	real matrix      raw, bs, jk, summ, bmeans, jmeans, sm
 	real colvector   bvals, jvals
 	string matrix    rstripe, cstripe
+	transmorphic     src
 
 	if (missing(boot_B) | boot_B <= 0) {
 		errprintf("mvcrr: bootstrap requires mvgstudy to have been run with the bootstrap option first\n")
@@ -2740,14 +3155,16 @@ void mvgstudy::run_crr_bootstrap(string scalar avn, string scalar jvn,
 		exit(198)
 	}
 
-	k_out = cols(Y_data)
-	idx   = _crr_resolve_idx(avn, jvn, pvn)
+	k      = cols(Y_data)
+	m_orig = rows(P)
+	sm     = J(k, k, 0)
+	qidx   = (1, 2, 3, 4, 8, 9, 10, 11, 12, 16)
+	nq     = length(qidx)
 
-	// Means matching the pw setting: per-rep stores and full-sample values
 	if (pw) {
 		bmeans     = boot_pwmeans
 		jmeans     = jack_pwmeans
-		means_full = _pw_means(Y_data, Z_data[., _crr_obj_col()])
+		means_full = _pw_means(Y_data, Z_data[., crr_objcol])
 	}
 	else {
 		bmeans     = boot_means
@@ -2756,49 +3173,47 @@ void mvgstudy::run_crr_bootstrap(string scalar avn, string scalar jvn,
 	}
 
 	// Full-sample point estimates (theta-hat for BCa)
-	res     = _crr_core(asarray(covcomps, "emcp1"), asarray(covcomps, "emcp2"),
-	                    means_full, idx[1], idx[2], idx[3],
-	                    nL, sig_mode, s1, s2, s3)
-	th_full = res[1..4]   // crr, Abar, lambda, erho2_dcfpl
+	src     = (rows(aug_w) == 0 ? covcomps : orig_covcomps)
+	raw     = _crr_raw_stack(src, m_orig)
+	res     = _crr_core(raw, means_full, sm, sig_mode, s1, s2, s3, .)
+	th_full = res[qidx]
 
-	boot1  = asarray(boot_store, "emcp1")
-	boot2  = asarray(boot_store, "emcp2")
-	jack1  = asarray(jack_store, "emcp1")
-	jack2  = asarray(jack_store, "emcp2")
-	n_jack = rows(jack1)
+	n_jack = rows(asarray(jack_store, "emcp1"))
 
-	// Bootstrap replicates
-	bs = J(boot_B, 4, .)
+	// Bootstrap replicates (skipped reps stay missing)
+	bs = J(boot_B, nq, .)
 	for (b = 1; b <= boot_B; b++) {
 		mrow = bmeans[b, .]
-		if (missing(boot1[b, 1]) | missing(mrow[1])) continue
-		res = _crr_core(rowshape(boot1[b, .], k_out),
-		                rowshape(boot2[b, .], k_out),
-		                mrow, idx[1], idx[2], idx[3],
-		                nL, sig_mode, s1, s2, s3)
-		bs[b, .] = res[1..4]
+		if (missing(asarray(boot_store, "emcp1")[b, 1]) | missing(mrow[1])) continue
+		raw = J(0, k, .)
+		for (ei = 1; ei <= m_orig; ei++) {
+			raw = raw \ rowshape(asarray(boot_store, "emcp" + strofreal(ei))[b, .], k)
+		}
+		res      = _crr_core(raw, mrow, sm, sig_mode, s1, s2, s3, .)
+		bs[b, .] = res[qidx]
 	}
 
 	// Jackknife replicates (for BCa acceleration)
-	jk = J(n_jack, 4, .)
+	jk = J(n_jack, nq, .)
 	for (j_p = 1; j_p <= n_jack; j_p++) {
 		mrow = jmeans[j_p, .]
-		if (missing(jack1[j_p, 1]) | missing(mrow[1])) continue
-		res = _crr_core(rowshape(jack1[j_p, .], k_out),
-		                rowshape(jack2[j_p, .], k_out),
-		                mrow, idx[1], idx[2], idx[3],
-		                nL, sig_mode, s1, s2, s3)
-		jk[j_p, .] = res[1..4]
+		if (missing(asarray(jack_store, "emcp1")[j_p, 1]) | missing(mrow[1])) continue
+		raw = J(0, k, .)
+		for (ei = 1; ei <= m_orig; ei++) {
+			raw = raw \ rowshape(asarray(jack_store, "emcp" + strofreal(ei))[j_p, .], k)
+		}
+		res        = _crr_core(raw, mrow, sm, sig_mode, s1, s2, s3, .)
+		jk[j_p, .] = res[qidx]
 	}
 
 	// BCa summary per quantity
-	summ = J(4, 4, .)
-	for (q = 1; q <= 4; q++) {
+	summ = J(nq, 4, .)
+	for (q = 1; q <= nq; q++) {
 		bvals = select(bs[., q], !missing(bs[., q]))
 		jvals = select(jk[., q], !missing(jk[., q]))
 		se = (rows(bvals) > 1 ? sqrt(variance(bvals)) : .)
 		a  = (rows(jvals) >= 2 ? bca_acceleration(jvals) : 0)
-		if (rows(bvals) > 0) {
+		if (rows(bvals) > 0 & !missing(th_full[q])) {
 			ci = bca_ci(bvals, th_full[q], a, ci_alpha)
 		}
 		else {
@@ -2808,53 +3223,52 @@ void mvgstudy::run_crr_bootstrap(string scalar avn, string scalar jvn,
 	}
 
 	st_matrix(table_name, summ)
-	rstripe       = J(4, 2, "")
-	rstripe[., 2] = ("crr" \ "Abar" \ "lambda" \ "erho2_dcfpl")
+	rstripe       = J(nq, 2, "")
+	rstripe[., 2] = ("crr" \ "Abar" \ "lambda" \ "erho2" \ "dbeta" \ "crr_orth" \
+	                 "lambda_orth" \ "crr_bc" \ "lambda_bc" \ "Jbar")
 	cstripe       = J(4, 2, "")
 	cstripe[., 2] = ("estimate" \ "se" \ "ci_lo" \ "ci_hi")
 	st_matrixrowstripe(table_name, rstripe)
 	st_matrixcolstripe(table_name, cstripe)
 }
 
-// Phase 12d: Single-replication mode.
-// For a one-effect G study (A J prevalence = object) — one row per object,
-// no lesson replication (e.g., a validation subsample with pooled utterance
-// sets per teacher).  Reproduces the paper's person-only CRR
-// (lambda x Erho2_DCF:P, chapter eq. line 387):
-//   - emcp1 is the across-object sample covariance matrix; its diagonals are
-//     DISATTENUATED by subtracting mean per-object sampling variances,
-//       SV(A_p)  = nu0^2 * mean(1/n0_p)
-//       SV(J_p)  = nu1^2 * mean(1/n1_p) + nu0^2 * mean(1/n0_p)
-//       SV(pi_p) = mean(pi_p*(1-pi_p)/(n0_p+n1_p))            (binomial)
+// Single-replication mode (one-effect G study: one row per object, no lesson
+// replication).  Reproduces the paper's person-only CRR with the panel:
+//   - emcp1 is the across-object sample covariance matrix; it is
+//     DISATTENUATED by subtracting the mean per-object sampling covariance
+//     matrix (derivation I.6; structure validated by Simulation 4):
+//       Var(A_p)  = nu0^2 * mean(1/n0_p)
+//       Var(J_p)  = nu1^2 * mean(1/n1_p) + nu0^2 * mean(1/n0_p)
+//       Cov(A,J)  = -nu0^2 * mean(1/n0_p)
+//       Var(pi_p) = mean(pi_p*(1-pi_p)/(n0_p+n1_p))     (binomial)
+//       Cov(A,pi) = Cov(J,pi) = 0
 //     with n0/n1 = per-object gold-negative/-positive utterance counts read
 //     from the dataset in memory (must match the estimation sample rows).
-//   - the lesson side enters as D-study parameters:
-//     sigma2_pi_LP = rho_lp * max(0, sigma2_pi_disattenuated),
-//     sigma2_a_LP = sigma2_j_LP = 0, and sigma2_eps from the nu closed form.
-//   - _crr_core does the truncation, flags, and formula; with the lesson-level
-//     DCF components zero it reduces exactly to eq. 387.
-// Outputs the same 9 scalars and comps matrix as compute_crr, plus the 1x3
-// mean sampling variances (sv_name) used for disattenuation.
-void mvgstudy::compute_crr_sr(string scalar avn, string scalar jvn,
-                               string scalar pvn,
-                               real scalar nL,
-                               real scalar nu0, real scalar nu1,
+//   - the lesson side enters as D-study parameters inside the core:
+//     sigma2_pi_LP = rho_lp * sigma2_pi (per path), lesson-level DCF = 0,
+//     and sigma2_eps from the nu closed form.
+//   - CRR_bc uses the raw (pre-disattenuation) across-object matrix as the
+//     Wishart plug-in with nu = n_P - 1 (varC_sr of 08_orthogonal_crr_rerun.do).
+// Pushes the same results as compute_crr plus the 1x3 mean sampling
+// variances (sv_name) subtracted in the disattenuation.
+void mvgstudy::compute_crr_sr(real scalar nu0, real scalar nu1,
                                real scalar nutt, real scalar rho_lp,
                                string scalar n0name, string scalar n1name,
-                               string scalar comps_name, string scalar sv_name,
+                               string scalar comps_name, string scalar cov_name,
+                               string scalar err_name, string scalar sv_name,
                                string scalar scnames_str)
 {
-	real rowvector   idx, means, res
+	real rowvector   means
 	real colvector   n0, n1, piv
-	real matrix      M_P, M_L, comps
-	real scalar      k, vA, vJ, vP, msvA, msvJ, msvP, d_aP, d_jP, d_pi, s_piL
-	string rowvector scn
-	string matrix    rstripe, cstripe, svrstripe
+	real matrix      raw, sm
+	real scalar      k, msvA, msvJ, msvP, ai, ji, pvi
+	string matrix    svrstripe, cstripe
 
-	scn   = tokens(scnames_str)
-	idx   = _crr_resolve_idx(avn, jvn, pvn)
 	means = mean(Y_data)
 	k     = cols(Y_data)
+	ai    = crr_idx[1]
+	ji    = crr_idx[2]
+	pvi   = crr_idx[3]
 
 	// Per-object counts from the dataset in memory
 	if (st_nobs() != rows(Y_data)) {
@@ -2869,63 +3283,29 @@ void mvgstudy::compute_crr_sr(string scalar avn, string scalar jvn,
 		exit(198)
 	}
 
-	// Raw across-object variances (single-effect emcp1 = sample covariance)
-	M_P = asarray(covcomps, "emcp1")
-	vA  = M_P[idx[1], idx[1]]
-	vJ  = M_P[idx[2], idx[2]]
-	vP  = M_P[idx[3], idx[3]]
-
-	// Mean per-object sampling variances (disattenuation corrections)
-	piv  = Y_data[., idx[3]]
+	// Mean per-object sampling (co)variances (disattenuation corrections)
+	piv  = Y_data[., pvi]
 	msvA = nu0 * mean(1 :/ n0)
 	msvJ = nu1 * mean(1 :/ n1) + nu0 * mean(1 :/ n0)
 	msvP = mean(piv :* (1 :- piv) :/ (n0 + n1))
+	sm   = J(k, k, 0)
+	sm[ai,  ai]  = msvA
+	sm[ji,  ji]  = msvJ
+	sm[pvi, pvi] = msvP
+	sm[ai,  ji]  = -nu0 * mean(1 :/ n0)
+	sm[ji,  ai]  = sm[ai, ji]
 
-	d_aP = vA - msvA
-	d_jP = vJ - msvJ
-	d_pi = vP - msvP
-	// Lesson-side D-study parameter uses the truncated prevalence variance
-	s_piL = rho_lp * max((0, d_pi))
-
-	// Build diagonal component matrices; _crr_core truncates negatives (the
-	// paper's convention for disattenuated components), sets the lambda = 1
-	// upper-bound flag, resolves sigma2_eps by the nu closed form (mode 2),
-	// and evaluates the formula.
-	M_P = J(k, k, 0)
-	M_P[idx[1], idx[1]] = d_aP
-	M_P[idx[2], idx[2]] = d_jP
-	M_P[idx[3], idx[3]] = d_pi
-	M_L = J(k, k, 0)
-	M_L[idx[3], idx[3]] = s_piL
-
-	res = _crr_core(M_P, M_L, means, idx[1], idx[2], idx[3],
-	                nL, 2, nu0, nu1, nutt)
-
-	// Push results (same contract as compute_crr)
-	comps = (res[8], res[9], res[10] \ res[11], res[12], res[13])
-	st_matrix(comps_name, comps)
-	rstripe        = J(2, 2, "")
-	rstripe[., 2]  = ("P" \ "L_P")
-	cstripe        = J(3, 2, "")
-	cstripe[., 2]  = (avn \ jvn \ pvn)
-	st_matrixrowstripe(comps_name, rstripe)
-	st_matrixcolstripe(comps_name, cstripe)
+	raw = _crr_raw_stack(covcomps, 1)
+	_crr_push(raw, means, sm, 2, nu0, nu1, nutt, rho_lp,
+	          comps_name, cov_name, err_name, scnames_str)
 
 	st_matrix(sv_name, (msvA, msvJ, msvP))
 	svrstripe        = J(1, 2, "")
 	svrstripe[1, 2]  = "sampvar"
+	cstripe          = J(3, 2, "")
+	cstripe[., 2]    = (varlist[ai] \ varlist[ji] \ varlist[pvi])
 	st_matrixrowstripe(sv_name, svrstripe)
 	st_matrixcolstripe(sv_name, cstripe)
-
-	st_numscalar(scn[1], res[1])          // crr
-	st_numscalar(scn[2], res[2])          // Abar
-	st_numscalar(scn[3], res[3])          // lambda
-	st_numscalar(scn[4], res[4])          // erho2_dcfp
-	st_numscalar(scn[5], means[idx[2]])   // Jbar
-	st_numscalar(scn[6], means[idx[3]])   // mupi
-	st_numscalar(scn[7], res[5])          // sigmae
-	st_numscalar(scn[8], res[6])          // ntrunc
-	st_numscalar(scn[9], res[7])          // ub
 }
 
 end

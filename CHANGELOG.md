@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.5.0 — 2026-08-26
+
+### Changed
+- **mvcrr generalized to any G-study design** (`spec_generalized_mvcrr.md`
+  rev. 3.1). `nl()` is replaced by `nfacet(facet # ...)` | `current`, and
+  `fix(facet # ...)` passes through the mixed-design augmentation used by
+  `mvdstudy`. The object effect and every effect containing the object facet
+  enter (relative-error convention); each effect's error is divided by the
+  product of its random facets' D-study sizes, and sigma2_eps by the product
+  of all random non-object facets' sizes. `nl(#)` is kept as a deprecated
+  synonym when exactly one random facet remains. After
+  `mvgstudy (A J pi = p l|p)`, `mvcrr, object(p) nfacet(l #)` reproduces
+  1.4.0 to machine precision.
+- **Covariance-inclusive reporting panel, always displayed:** CRR_zc (the
+  1.4.0 zero-covariance coefficient; ranking statistic), delta_beta =
+  beta - Jbar (alignment check), CRR_orth (orthogonal decomposition,
+  lambda = corr(tau, pi)^2) and CRR_bc (Wishart-moment bias-corrected) as a
+  sensitivity bracket, plus Jbar and Abar. Second-order terms follow the
+  ordered-pair union-effect rule of the derivation (Part II.2); estimated
+  matrices are PSD-repaired on the orthogonal path. All members propagate
+  through `bootstrap` (`r(crr_table)` now 10 x 4).
+- Single-replication mode also reports the panel: the disattenuation now
+  subtracts the full sampling covariance matrix (Cov(A,J) = -nu0^2/n0).
+- A small-sample warning is printed whenever the number of objects is below 50.
+
+### Added
+- `r(crr_zc)`, `r(dbeta)`, `r(beta)`, `r(crr_orth)`, `r(crr_bc)`,
+  `r(lambda_zc)`, `r(lambda_orth)`, `r(lambda_bc)`, `r(erho2)`,
+  `r(erho2_orth)`, `r(varC)`, `r(psdfix)`, `r(ub)`, `r(n_obj)`, `r(d_eps)`,
+  `r(var_obj_zc)`, `r(var_obj_orth)`, `r(err_zc)`, `r(err_orth)`, macros
+  `r(object) r(nfacet) r(fix) r(avar) r(jvar) r(pvar)`, matrices
+  `r(covcomps)` (effects x 6, orthogonal path) and `r(errors)`
+  (error effects x 3: divisor, err_zc, err_orth). `r(components)` now has one
+  row per effect used.
+- `mvgstudy` class: `apply_fixed_facets()` records the augmentation weights
+  (`aug_w`) so post-estimation commands can re-apply `fix()` per bootstrap
+  replicate.
+
+### Fixed
+- `help mvgstudy` no longer lists "facet name prefix collision" as a known
+  limitation: effect membership has been token-based since the 1.4.0 rewrite
+  (`_facet_in_effect`), and a design with facets `p` and `pr` now estimates
+  identically to the same design with non-overlapping names (verified for
+  balanced and unbalanced data, bootstrap, `mvdstudy fix()`).
+
+### Note
+- `r(crr)`, `r(lambda)`, `r(erho2_dcfpl)` / `r(erho2_dcfp)` keep their 1.4.0
+  (zero-covariance) meaning. Existing users must reinstall:
+  `net install mvgstudy, from(...) replace`.
+
 ## 1.4.0 — 2026-08-24
 
 ### Fixed

@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.4.0  24aug2026}{...}
+{* *! version 1.5.0  26aug2026}{...}
 {viewerdialog mvdstudy "dialog _mvdstudy"}{...}
 {viewerjumpto "Syntax" "mvdstudy##syntax"}{...}
 {viewerjumpto "Description" "mvdstudy##description"}{...}
