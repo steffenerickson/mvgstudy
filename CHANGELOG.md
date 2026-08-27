@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.5.1 — 2026-08-27
+
+### Breaking
+- **`r(crr)` and `r(lambda)` now return the covariance-inclusive values**
+  (in 1.5.0 they duplicated the zero-covariance `r(crr_zc)`, `r(lambda_zc)`,
+  which are unchanged). Scripts that read `r(crr)` as the zero-covariance
+  coefficient must switch to `r(crr_zc)`.
+
+### Changed
+- The `mvcrr` panel is reduced to five members displayed in reading order:
+  **CRR_zc** (ranking statistic), **delta_beta** (alignment check), **CRR**
+  (covariance-inclusive point estimate of the estimand; "CRR_orth" in 1.5.0),
+  **Jbar**, **Abar**. Labels follow the dissertation's notation (CRR /
+  CRR_zc, lambda / lambda_zc, Erho2 covariance-inclusive / zero-covariance).
+- Small-sample warning rewritten: rank on CRR_zc, read CRR as a point
+  estimate (sampling SD about .15 at 12 objects), bootstrap for intervals.
+- `r(crr_table)` is 9 x 4: rows crr_zc, dbeta, crr, Jbar, Abar, lambda_zc,
+  lambda, erho2_zc, erho2_cov (was 10 x 4). The Mata library is rebuilt.
+- Help file: panel item 3, small-sample remarks and Stored results rewritten
+  on the Simulation 4 v2 evidence; new *Remarks: deprecated*.
+
+### Deprecated (removal in 1.6)
+- `r(crr_orth)`, `r(lambda_orth)`, `r(erho2_orth)` — aliases of `r(crr)`,
+  `r(lambda)`, `r(erho2_cov)`.
+- CRR_bc: the undocumented option `biascorrect` restores the Wishart
+  bias-corrected coefficient (`r(crr_bc)`, `r(lambda_bc)`, `r(varC)`, one
+  extra display line, two rows appended to `r(crr_table)`); without it these
+  results are not returned.
+
+### Added
+- `r(erho2_cov)`: Erho2_DCF:O on the covariance-inclusive path.
+
+### Why
+Simulation 4 v2 (reference cell recalibrated to the empirical survivors:
+mu_pi = .20, sigma_pi = .07, Jbar = .55, CRR_zc = .55) showed that the
+[CRR_bc, CRR_orth] "sensitivity bracket" of 1.5.0 does not bracket the
+truth: at 12 objects both members sit below it for delta_beta above about
+-.2 — CRR_orth is nearly unbiased (-.02 to -.04, upward only where the truth
+is near zero) while CRR_bc is uniformly over-conservative (-.15 to -.27; -.05
+at 50 objects). The covariance-inclusive coefficient is therefore reported as
+a point estimate, and its uncertainty as a bootstrap interval. Every retained
+quantity is identical to 1.5.0 (`test_mvcrr.do` Test 20).
+
 ## 1.5.0 — 2026-08-26
 
 ### Changed

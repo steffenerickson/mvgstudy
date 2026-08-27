@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------//
-*! mvcrr  version 1.5.0  26aug2026
-*! v1.5.0: generalized to any mvgstudy design (nfacet/current/fix); covariance-
-*!  inclusive reporting panel (CRR_zc, delta_beta, CRR_orth, CRR_bc, Jbar, Abar).
+*! mvcrr  version 1.5.1  27aug2026
+*! v1.5.1: panel = CRR_zc, delta_beta, CRR, Jbar, Abar; r(crr)/r(lambda) are the
+*!  covariance-inclusive values; CRR_bc deprecated (biascorrect).
 *!  Requires Stata 19.  History: CHANGELOG.md.
 //----------------------------------------------------------------------------//
 
@@ -12,7 +12,7 @@
 // that is both reproducible over the generalization facets and driven by
 // true prevalence, under differential classifier functioning (DCF) at every
 // effect of the design.  Reference: Erickson dissertation ch. 2;
-// spec_generalized_mvcrr.md (rev. 3.1) and the derivation
+// spec_generalized_mvcrr.md (rev. 3.2) and the derivation
 // generalized_crr_covariance_derivation.md (Parts I-II).
 //
 // Requires a prior mvgstudy run with exactly three outcome variables
@@ -30,7 +30,10 @@ program mvcrr, rclass
 	         Avar(string) Jvar(string) Pvar(string) ///
 	         nu0(string) nu1(string) NUTT(string) SIGMAE(string) ///
 	         N0var(string) N1var(string) RHO_lp(string) ///
-	         PWmeans Bootstrap CI_level(real 95)]
+	         PWmeans Bootstrap CI_level(real 95) BIASCorrect]
+	// biascorrect: undocumented, deprecated (removal in 1.6) -- shows and
+	// returns the Wishart bias-corrected CRR_bc / lambda_bc / varC.
+	local bc = ("`biascorrect'" != "")
 
 	tempname _nv CMP COV ERR SVM CRT _fixed_ns _nf_ns
 	// 25 result slots, in the order of the Mata core's return layout
@@ -396,17 +399,19 @@ program mvcrr, rclass
 		di as text _newline "Projected Construct-Relevant Reliability (`modelab')"
 		di as text "{hline 72}"
 		di as text "  CRR_zc  (ranking statistic; zero-covariance)" _column(50) "= " as result %9.4f scalar(`C_crr')
-		di as text "  A-bar   (mean false-positive intercept)" _column(50) "= " as result %9.4f scalar(`C_ab')
-		di as text "  J-bar   (mean class separation)" _column(50) "= " as result %9.4f scalar(`C_jb')
 		di as text "  delta_beta (alignment check; beta - J-bar)" _column(50) "= " as result %9.4f scalar(`C_db')
-		di as text "  CRR_orth (orthogonal, naive; upper edge)" _column(50) "= " as result %9.4f scalar(`C_cro')
-		di as text "  CRR_bc   (orthogonal, bias-corr.; lower edge)" _column(50) "= " as result %9.4f scalar(`C_crb')
+		di as text "  CRR     (covariance-inclusive)" _column(50) "= " as result %9.4f scalar(`C_cro')
+		di as text "  J-bar   (mean class separation)" _column(50) "= " as result %9.4f scalar(`C_jb')
+		di as text "  A-bar   (mean false-positive intercept)" _column(50) "= " as result %9.4f scalar(`C_ab')
 		di as text "{hline 72}"
 		di as text "  lambda_zc" _column(50) "= " as result %9.4f scalar(`C_lam')
 		di as text "  Erho2_DCF:`object' (zero-covariance)" _column(50) "= " as result %9.4f scalar(`C_er')
-		di as text "  lambda_orth = corr(tau, pi)^2" _column(50) "= " as result %9.4f scalar(`C_lo')
-		di as text "  lambda_bc" _column(50) "= " as result %9.4f scalar(`C_lb')
+		di as text "  lambda  = corr(tau, pi)^2 (cov.-inclusive)" _column(50) "= " as result %9.4f scalar(`C_lo')
 		di as text "  Erho2_DCF:`object' (covariance-inclusive)" _column(50) "= " as result %9.4f scalar(`C_ero')
+		if `bc' {
+			di as text "  CRR_bc (deprecated; Wishart bias-corrected)" _column(50) "= " as result %9.4f scalar(`C_crb')
+			di as text "  lambda_bc (deprecated)" _column(50) "= " as result %9.4f scalar(`C_lb')
+		}
 		di as text "  beta (slope of universe score on prevalence)" _column(50) "= " as result %9.4f scalar(`C_beta')
 		di as text "  mu_pi (mean prevalence)" _column(50) "= " as result %9.4f scalar(`C_mp')
 		di as text "  sigma2_eps (realization variance)" _column(50) "= " as result %9.6f scalar(`C_se')
@@ -447,7 +452,7 @@ program mvcrr, rclass
 			di as text "(note: object-level DCF components truncated to zero; lambda_zc = 1 by" ///
 			           " construction and CRR_zc is an upper bound, not an estimate)"
 		}
-		if missing(scalar(`C_crb')) {
+		if `bc' & missing(scalar(`C_crb')) {
 			di as text "(note: CRR_bc not available: the Wishart plug-in needs an invertible" ///
 			           " expected-mean-square matrix for the design)"
 		}
@@ -457,16 +462,16 @@ program mvcrr, rclass
 			           " is counted twice)"
 		}
 		mata: st_local("_crr_isbal", strofreal(c.crr_isbal))
-		if "`_crr_isbal'" == "0" {
+		if `bc' & "`_crr_isbal'" == "0" {
 			di as text "(note: unbalanced design; CRR_bc uses the balanced-design Wishart" ///
 			           " approximation with the observed expected-mean-square coefficients)"
 		}
 		if `n_obj' < 50 {
-			di as text "{err}Warning:{txt} only `n_obj' objects (fewer than 50). Rank on CRR_zc, read"
-			di as text "         [CRR_bc, CRR_orth] as a sensitivity bracket, and use bootstrap for"
-			di as text "         reportable inference: at small object samples the orthogonal"
-			di as text "         estimators are biased (naive upward, corrected downward) and"
-			di as text "         delta_beta is noisy (see help mvcrr, Remarks: small samples)."
+			di as text "{err}Warning:{txt} only `n_obj' objects (fewer than 50). Rank on CRR_zc; read CRR as a"
+			di as text "         point estimate whose sampling SD is of the same order as CRR_zc's"
+			di as text "         (about .15 at 12 objects in the validating simulation); use"
+			di as text "         bootstrap for reportable intervals. delta_beta is unbiased but"
+			di as text "         noisy (SD about .2 at 12 objects); see help mvcrr, Remarks."
 		}
 
 		//---//
@@ -474,7 +479,7 @@ program mvcrr, rclass
 		//---//
 		if ("`bootstrap'" != "") {
 			di as text _newline "Running CRR bootstrap (`ci_level'% BCa CIs, B=`=scalar(`_bB')')..."
-			mata c.run_crr_bootstrap(`pw', `sig_mode', `s1', `s2', `s3', `ci_alpha', "`CRT'")
+			mata c.run_crr_bootstrap(`pw', `sig_mode', `s1', `s2', `s3', `ci_alpha', "`CRT'", `bc')
 			di as text "CRR bootstrap complete."
 			di as text ""
 			matlist `CRT', format(%9.4f) ///
@@ -491,19 +496,27 @@ program mvcrr, rclass
 	//---//
 	// Returned results (return matrix moves the matrix: all display above)
 	//---//
-	return scalar crr         = scalar(`C_crr')
+	// v1.5.1: r(crr), r(lambda) are the covariance-inclusive values (CRR,
+	// lambda of the chapter); r(crr_zc), r(lambda_zc) the zero-covariance ones.
+	// r(crr_orth), r(lambda_orth), r(erho2_orth) are deprecated aliases
+	// (removal in 1.6); r(crr_bc), r(lambda_bc), r(varC) only with biascorrect.
+	return scalar crr         = scalar(`C_cro')
 	return scalar crr_zc      = scalar(`C_crr')
 	return scalar Abar        = scalar(`C_ab')
 	return scalar Jbar        = scalar(`C_jb')
 	return scalar dbeta       = scalar(`C_db')
 	return scalar beta        = scalar(`C_beta')
 	return scalar crr_orth    = scalar(`C_cro')
-	return scalar crr_bc      = scalar(`C_crb')
-	return scalar lambda      = scalar(`C_lam')
+	return scalar lambda      = scalar(`C_lo')
 	return scalar lambda_zc   = scalar(`C_lam')
 	return scalar lambda_orth = scalar(`C_lo')
-	return scalar lambda_bc   = scalar(`C_lb')
+	if `bc' {
+		return scalar crr_bc    = scalar(`C_crb')
+		return scalar lambda_bc = scalar(`C_lb')
+		return scalar varC      = scalar(`C_vc')
+	}
 	return scalar erho2       = scalar(`C_er')
+	return scalar erho2_cov   = scalar(`C_ero')
 	if `srmode' {
 		return scalar erho2_dcfp = scalar(`C_er')
 		return scalar rho_lp     = `rho_lp'
@@ -522,7 +535,6 @@ program mvcrr, rclass
 	return scalar trunc       = scalar(`C_tr')
 	return scalar psdfix      = scalar(`C_psd')
 	return scalar ub          = scalar(`C_ub')
-	return scalar varC        = scalar(`C_vc')
 	return scalar var_obj_zc   = scalar(`C_vz')
 	return scalar var_obj_orth = scalar(`C_vo')
 	return scalar err_zc      = scalar(`C_ez')

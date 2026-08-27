@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------//
-// mvgstudy Mata source  version 1.5.0  26aug2026
+// mvgstudy Mata source  version 1.5.1  27aug2026
 // Compiled into lmvgstudy.mlib by build_mlib.do.  Not installed by the .pkg.
 //----------------------------------------------------------------------------//
 mata
@@ -2549,9 +2549,13 @@ void mvgstudy::restore_fixed_facets()
 // The command always reports the five-member panel:
 //   CRR_zc   zero-covariance coefficient (v1.4.0 formulas) - ranking statistic
 //   dbeta    alignment diagnostic beta - Jbar (assumption check)
-//   CRR_orth naive orthogonal-decomposition CRR (upper edge of the bracket)
-//   CRR_bc   Wishart-moment bias-corrected CRR (lower edge)
+//   CRR      covariance-inclusive coefficient (orthogonal decomposition;
+//            the estimand's point estimate; "CRR_orth" in v1.5.0)
 //   Jbar, Abar   separation and intercept companions
+//   CRR_bc   Wishart-moment bias-corrected CRR -- DEPRECATED since v1.5.1
+//            (Simulation 4 v2: uniformly over-conservative); still computed
+//            by _crr_core() but shown/returned only with mvcrr's undocumented
+//            biascorrect option.  Slated for removal in 1.6.
 //
 // Design-level structures are built once per mvcrr call by _crr_setup():
 // which effects enter (object effect + relative-error effects), the D-study
@@ -2794,7 +2798,9 @@ real matrix mvgstudy::_crr_raw_stack(transmorphic store, real scalar m_orig)
 //   S(u) = sum over (e1,e2) with e1 v e2 = u of [ j(e1)pi(e2) + s_jpi(e1)s_jpi(e2) ]
 // and V(u) = w'S_u w + S(u), w = (1, mupi, Jbar)' over (A, J, pi).
 // Errors: err = sum over relative-error effects V(u)/d(u) + sigma2_eps/d(eps).
-// CRR_bc: Var(Chat) = sum_m coef_m^2 sum_{ab} w_a w_b (M_ac M_bd + M_ad M_bc)/df_m
+// CRR_bc (deprecated since v1.5.1; slots 11, 12, 22, 25 are consumed only
+// under mvcrr's biascorrect option):
+//   Var(Chat) = sum_m coef_m^2 sum_{ab} w_a w_b (M_ac M_bd + M_ad M_bc)/df_m
 //   with M_m = sum_e P[m,e] raw_e (plug-in expected mean squares), weights
 //   (Jbar, 1, mupi) over the entries (pi,pi), (a,pi), (j,pi); reduces to
 //   varC() of 08_simulation_4.do for the balanced p, l|p design.
@@ -3131,19 +3137,22 @@ real rowvector mvgstudy::_crr_resolve_idx(string scalar avn,
 // G-study bootstrap/jackknife replicates (original-design component matrices
 // in boot_store/jack_store plus per-replicate means) through _crr_core; the
 // fix() augmentation is applied per replicate through aug_w.  Requires a
-// prior mvgstudy run with the bootstrap option.  Pushes a 10 x 4 summary to
-// table_name: rows crr, Abar, lambda, erho2 (zc path), dbeta, crr_orth,
-// lambda_orth, crr_bc, lambda_bc, Jbar; cols estimate, se, ci_lo, ci_hi.
+// prior mvgstudy run with the bootstrap option.  Pushes a 9 x 4 summary to
+// table_name: rows crr_zc, dbeta, crr, Jbar, Abar, lambda_zc, lambda,
+// erho2_zc, erho2_cov (v1.5.1 panel order); cols estimate, se, ci_lo, ci_hi.
+// With the optional bc flag (deprecated biascorrect path) the rows crr_bc,
+// lambda_bc are appended (11 x 4).
 void mvgstudy::run_crr_bootstrap(real scalar pw, real scalar sig_mode,
                                   real scalar s1, real scalar s2,
                                   real scalar s3, real scalar ci_alpha,
-                                  string scalar table_name)
+                                  string scalar table_name, | real scalar bc)
 {
 	real scalar      k, m_orig, b, j_p, q, n_jack, se, a, ei, nq
 	real rowvector   th_full, res, ci, means_full, mrow, qidx
 	real matrix      raw, bs, jk, summ, bmeans, jmeans, sm
 	real colvector   bvals, jvals
 	string matrix    rstripe, cstripe
+	string colvector rnames
 	transmorphic     src
 
 	if (missing(boot_B) | boot_B <= 0) {
@@ -3158,7 +3167,10 @@ void mvgstudy::run_crr_bootstrap(real scalar pw, real scalar sig_mode,
 	k      = cols(Y_data)
 	m_orig = rows(P)
 	sm     = J(k, k, 0)
-	qidx   = (1, 2, 3, 4, 8, 9, 10, 11, 12, 16)
+	qidx   = (1, 8, 9, 16, 2, 3, 10, 4, 13)
+	if (args() > 7) {
+		if (bc == 1) qidx = (qidx, 11, 12)
+	}
 	nq     = length(qidx)
 
 	if (pw) {
@@ -3224,8 +3236,10 @@ void mvgstudy::run_crr_bootstrap(real scalar pw, real scalar sig_mode,
 
 	st_matrix(table_name, summ)
 	rstripe       = J(nq, 2, "")
-	rstripe[., 2] = ("crr" \ "Abar" \ "lambda" \ "erho2" \ "dbeta" \ "crr_orth" \
-	                 "lambda_orth" \ "crr_bc" \ "lambda_bc" \ "Jbar")
+	rnames        = ("crr_zc" \ "dbeta" \ "crr" \ "Jbar" \ "Abar" \ "lambda_zc" \
+	                 "lambda" \ "erho2_zc" \ "erho2_cov")
+	if (nq == 11) rnames = rnames \ ("crr_bc" \ "lambda_bc")
+	rstripe[., 2] = rnames
 	cstripe       = J(4, 2, "")
 	cstripe[., 2] = ("estimate" \ "se" \ "ci_lo" \ "ci_hi")
 	st_matrixrowstripe(table_name, rstripe)

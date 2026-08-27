@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.5.0  26aug2026}{...}
+{* *! version 1.5.1  27aug2026}{...}
 {viewerjumpto "Syntax" "mvcrr##syntax"}{...}
 {viewerjumpto "Description" "mvcrr##description"}{...}
 {viewerjumpto "Options" "mvcrr##options"}{...}
@@ -10,13 +10,14 @@
 {viewerjumpto "Remarks: single-replication mode" "mvcrr##srmode"}{...}
 {viewerjumpto "Remarks: double counting" "mvcrr##remarks"}{...}
 {viewerjumpto "Remarks: known limitations" "mvcrr##limitations"}{...}
+{viewerjumpto "Remarks: deprecated" "mvcrr##deprecated"}{...}
 {viewerjumpto "Examples" "mvcrr##examples"}{...}
 {viewerjumpto "Stored results" "mvcrr##results"}{...}
 {viewerjumpto "References" "mvcrr##reference"}{...}
 {vieweralsosee "mvgstudy" "help mvgstudy"}{...}
 {vieweralsosee "mvdstudy" "help mvdstudy"}{...}
 
-{p2col:{bf:mvcrr}} Projected construct-relevant reliability (CRR) after {helpb mvgstudy}  {p_end}
+{p2col:{bf:mvcrr}} Projected construct-relevant reliability after {helpb mvgstudy}: the covariance-inclusive reporting panel (CRR_zc, delta_beta, CRR, Jbar, Abar)  {p_end}
 {p2colreset}{...}
 
 
@@ -116,11 +117,15 @@ CRR = lambda x Erho2_DCF:O.
 Two definitions of the signal num_pi are reported side by side (see
 {help mvcrr##panel:the reporting panel}): the {bf:zero-covariance}
 definition num_pi = Jbar^2 * sigma2_pi, which ignores the off-diagonals of
-every Sigma_e and reproduces version 1.4.0 exactly, and the
-{bf:orthogonal} definition num_pi = beta^2 * sigma2_pi with
+every Sigma_e and reproduces version 1.4.0 exactly (labelled {bf:CRR_zc},
+{cmd:r(crr_zc)}), and the {bf:covariance-inclusive} definition
+num_pi = beta^2 * sigma2_pi with
 beta = Jbar + (sigma_api + mu_pi*sigma_jpi)/sigma2_pi from the object-level
-covariances, under which lambda = corr(tau, pi)^2 exactly and CRR is the
-projected squared correlation of the D-study score with true prevalence.
+covariances (the orthogonal, or regression, decomposition), under which
+lambda = corr(tau, pi)^2 exactly and CRR is the projected squared
+correlation of the D-study score with true prevalence.  This second
+coefficient is the estimand and is labelled simply {bf:CRR} ({cmd:r(crr)}),
+matching the notation of the dissertation.
 
 {pstd}
 Because the intercept Abar cancels from every variance ratio yet biases
@@ -245,8 +250,8 @@ definition in use is always shown in the output and stored in {cmd:r(pwmeans)}.
 
 {phang}
 {opt bootstrap} computes bootstrap BCa confidence intervals for every member
-of the panel (CRR_zc, Abar, lambda_zc, Erho2, delta_beta, CRR_orth,
-lambda_orth, CRR_bc, lambda_bc, Jbar).  Requires that {cmd:mvgstudy} was run
+of the panel and its companions (CRR_zc, delta_beta, CRR, Jbar, Abar,
+lambda_zc, lambda, both Erho2 values).  Requires that {cmd:mvgstudy} was run
 with its {opt bootstrap} option: {cmd:mvcrr} propagates the stored G-study
 bootstrap and jackknife replicates — the full covariance-component matrices
 {it:and} the per-replicate outcome means — through the same computation
@@ -264,12 +269,13 @@ default is {cmd:ci_level(95)}.  Must be strictly between 0 and 100.
 
 {pstd}
 No single coefficient survives on its own, so {cmd:mvcrr} always displays and
-stores the following five-member panel (spec rev. 3.1; validated by
-Simulation 4 of the dissertation).
+stores the following five-member panel (spec rev. 3.2; validated by
+Simulation 4 of the dissertation).  The panel is displayed in its reading
+order: rank, check, estimate, companions.
 
 {phang2}
 1. {bf:CRR_zc} — the zero-covariance coefficient (the version 1.4.0 formulas;
-{cmd:r(crr)}, {cmd:r(crr_zc)}).  The {it:ranking statistic}: magnitude-aware
+{cmd:r(crr_zc)}).  The {it:ranking statistic}: magnitude-aware
 (its signal is Jbar^2 sigma2_pi, so a classifier with no separation cannot
 pass), stable at small object samples, and exact when delta_beta = 0.
 Whenever delta_beta differs from zero it is computed under a stated
@@ -280,27 +286,26 @@ no-saturation assumption — an upper-bound-flavored screen, not the estimand.
 {it:assumption check}, signed, in Jbar units.  delta_beta ~ 0: the two
 definitions coincide and CRR_zc is exact.  delta_beta < 0 (saturation, e.g., a
 classifier that separates worse at high prevalence): CRR_zc is optimistic.
-delta_beta > 0: lambda under the orthogonal definition borrows
-population-specific alignment that will not transport.  Noisy at small
-samples (sampling SD about .57 at 12 objects, .21 at 50, .10 at 200): a sign
-pattern across configurations is informative, a single value is not.
+delta_beta > 0: lambda under the covariance-inclusive definition borrows
+population-specific alignment that will not transport.  Unbiased but noisy
+at small samples (sampling SD about .15 to .2 at 12 objects in Simulation 4,
+smaller as objects grow): a sign pattern across configurations is
+informative, a single value is not.
 
 {phang2}
-3. {bf:CRR_orth} and {bf:CRR_bc} ({cmd:r(crr_orth)}, {cmd:r(crr_bc)}) — the
-{it:sensitivity bracket} for the correct estimand (the projected squared
-correlation of the D-study score with true prevalence).  CRR_orth is the
-naive orthogonal-decomposition estimator, biased upward at small object
-samples (+.07 to +.11 at 12 objects even with no true covariance, ~+.02 at
-50, ~0 at 200) and vulnerable to variance cancellation (large anti-tracking
-DCF can shrink V(O) toward zero and push a near-useless classifier's
-corr(tau, pi)^2 high).  CRR_bc subtracts the Wishart-moment plug-in of
-Var(Chat) from Chat^2, Chat = Jbar sigma2_pi + sigma_api + mu_pi sigma_jpi
-(derivation I.8; floored at 0 and capped at V(O)); it removes the worst of
-the upward bias (+.110 to +.003 under strong saturation at 12 objects) but
-is {it:conservative} — it overcorrects where the true signal is large (down
-to -.10 at 12 objects with strong positive alignment; -.005 to -.015 at 200)
-because the plug-in variance is itself upward-biased.  The two bracket the
-estimand in expectation; report them, never rank on either alone.
+3. {bf:CRR} ({cmd:r(crr)}) — the covariance-inclusive coefficient: the
+{it:point estimate} of the estimand, the projected squared correlation of
+the D-study score with true prevalence, computed under the orthogonal
+decomposition (lambda = corr(tau, pi)^2).  At realistic signal it is nearly
+unbiased even with 12 objects (Simulation 4 v2, reference cell with
+sigma_pi = .07 and CRR_zc = .55: bias -.02 to -.04 for delta_beta between
+-.26 and +.26 at 12 objects, within .01 at 50), and biased upward only where
+the true value is near zero (truth .09, mean estimate .15 at 12 objects).
+Its sampling SD at 12 objects is of the same order as CRR_zc's (about .15),
+so read it as a point estimate and use {opt bootstrap} for intervals.  It is
+unsafe as a ranking statistic on its own because of variance cancellation:
+large anti-tracking DCF can shrink V(O) toward zero and push a near-useless
+classifier's corr(tau, pi)^2 high — which is why Jbar is a companion.
 
 {phang2}
 4. {bf:Jbar} ({cmd:r(Jbar)}) — the separation companion.  A floor on Jbar
@@ -315,18 +320,22 @@ whenever absolute prevalence is the reported quantity.
 {bf:Selection guidance.}  Rank on CRR_zc against the use-determined floor,
 require the Jbar floor, inspect delta_beta for the survivors — a large
 negative delta_beta flags a configuration as failing the assumption its
-CRR_zc rests on — and report the [CRR_bc, CRR_orth] bracket for the selected
-set.  Among configurations with similar CRR_zc, prefer the one with
+CRR_zc rests on — and require that CRR also clear the floor for the selected set.  Among
+configurations with similar CRR_zc, prefer the one with
 delta_beta closest to zero: it is the better instrument, the one whose
 reported reliability means what it says in any population, not just the
 validation sample.
 
 {pstd}
-The companion quantities lambda_zc, lambda_orth = corr(tau, pi)^2,
-lambda_bc, beta, both Erho2 values (zero-covariance and
-covariance-inclusive), the per-effect component tables and the per-effect
-error contributions are displayed and stored as well (see
-{help mvcrr##results:Stored results}).
+The companion quantities lambda_zc, lambda = corr(tau, pi)^2, beta, both
+Erho2 values (zero-covariance and covariance-inclusive), the per-effect
+component tables and the per-effect error contributions are displayed and
+stored as well (see {help mvcrr##results:Stored results}).  Version 1.5.0
+additionally displayed a Wishart bias-corrected coefficient CRR_bc as the
+lower edge of a "sensitivity bracket" [CRR_bc, CRR]; Simulation 4 v2 showed
+that at realistic signal both edges fall below the truth (CRR_bc by -.15 to
+-.27 at 12 objects), so the bracket was withdrawn in 1.5.1 (see
+{help mvcrr##deprecated:Deprecated}).
 
 
 {marker effects}{...}
@@ -397,18 +406,18 @@ between penalty and error.
 
 {pstd}
 Whenever the number of objects is below 50, {cmd:mvcrr} prints a warning.
-Simulation 4 measured the sampling behavior of the panel at 12/50/200
-objects: lambda's sampling SD is about .21 at 12 objects, PSD repair fires in
-roughly 40% of replicates, the naive orthogonal CRR is biased upward and the
-corrected one downward (magnitudes above), and delta_beta is unbiased but
-weakly powered.  Point estimates at validation-sample sizes are screening
-values; the {opt bootstrap} interval is the reportable inference.
-
-{pstd}
-The Wishart plug-in behind CRR_bc is exact for balanced designs, where each
-component matrix is a fixed linear combination of independent Wishart
-mean-square matrices.  For unbalanced designs the same coefficients are used
-with the CP-terms estimates as an approximation, and a note says so.
+Simulation 4 (v2, reference cell calibrated to the empirical survivors:
+mu_pi = .20, sigma_pi = .07, Jbar = .55, CRR_zc = .55) measured the sampling
+behavior of the panel at 12 and 50 objects: CRR is nearly unbiased at
+realistic signal (-.02 to -.04 at 12 objects, within .01 at 50; upward only
+where the truth is near zero) with a sampling SD of about .15 at 12 objects,
+PSD repair fires in a sizeable share of replicates, and delta_beta is
+unbiased but weakly powered (SD about .2 at 12 objects).  Point estimates at
+validation-sample sizes are screening values; the {opt bootstrap} interval
+is the reportable inference.  (The +.07 to +.11 upward bias of the
+covariance-inclusive estimator reported for 1.5.0 came from Simulation 4 v1,
+whose reference cell had sigma_pi = .03 and CRR about .15; it was a
+low-signal artifact.)
 
 
 {marker srmode}{...}
@@ -482,6 +491,30 @@ o The second-order terms assume within-effect normality; under skewed
 prevalence the error is about .01 (Simulation 4, skew arm).
 
 
+{marker deprecated}{...}
+{title:Remarks: deprecated}
+
+{pstd}
+{cmd:biascorrect} (undocumented in the syntax diagram; removal planned for
+version 1.6) restores the Wishart-moment bias-corrected coefficient of
+version 1.5.0: CRR_bc subtracts the closed-form plug-in of Var(Chat) from
+Chat^2, Chat = Jbar sigma2_pi + sigma_api + mu_pi sigma_jpi (derivation
+I.8; floored at 0 and capped at V(O)).  The plug-in is exact for balanced
+designs and approximate (with a note) for unbalanced ones.  Simulation 4 v2
+showed the estimator to be uniformly over-conservative at realistic signal
+(-.15 to -.27 at 12 objects, -.05 at 50), so it is no longer part of the
+panel.  With the option, one extra display line appears, {cmd:r(crr_bc)},
+{cmd:r(lambda_bc)}, and {cmd:r(varC)} are returned, and two rows
+({cmd:crr_bc}, {cmd:lambda_bc}) are appended to {cmd:r(crr_table)}; without
+it they are not returned at all.  The option exists so that the regression
+tests against the Simulation 4 reference implementation remain reproducible.
+
+{pstd}
+{cmd:r(crr_orth)}, {cmd:r(lambda_orth)}, and {cmd:r(erho2_orth)} are kept
+as aliases of {cmd:r(crr)}, {cmd:r(lambda)}, and {cmd:r(erho2_cov)} for the
+1.5.x releases and will be removed in 1.6.
+
+
 {marker examples}{...}
 {title:Examples}
 
@@ -552,22 +585,18 @@ for syntax — requires your own one-row-per-object data with count variables):{
 
 {synoptset 22 tabbed}{...}
 {p2col 5 22 26 2: Scalars}{p_end}
-{synopt:{cmd:r(crr)}}CRR_zc, the zero-covariance projected construct-relevant reliability (ranking statistic){p_end}
-{synopt:{cmd:r(crr_zc)}}same as {cmd:r(crr)}{p_end}
+{synopt:{cmd:r(crr)}}CRR, the covariance-inclusive projected construct-relevant reliability (point estimate of the estimand; was the zero-covariance value in 1.5.0){p_end}
+{synopt:{cmd:r(crr_zc)}}CRR_zc, the zero-covariance coefficient (ranking statistic){p_end}
 {synopt:{cmd:r(Abar)}}mean false-positive intercept Abar{p_end}
 {synopt:{cmd:r(Jbar)}}mean class separation Jbar{p_end}
 {synopt:{cmd:r(dbeta)}}alignment diagnostic delta_beta = beta - Jbar{p_end}
 {synopt:{cmd:r(beta)}}slope of the universe score on true prevalence{p_end}
-{synopt:{cmd:r(crr_orth)}}orthogonal-decomposition CRR (naive; upper edge of the bracket){p_end}
-{synopt:{cmd:r(crr_bc)}}bias-corrected orthogonal CRR (lower edge); missing if the Wishart plug-in is unavailable{p_end}
-{synopt:{cmd:r(lambda)}}lambda_zc, prevalence-driven share of universe-score variance (zero-covariance){p_end}
-{synopt:{cmd:r(lambda_zc)}}same as {cmd:r(lambda)}{p_end}
-{synopt:{cmd:r(lambda_orth)}}corr(tau, pi)^2 under the orthogonal decomposition{p_end}
-{synopt:{cmd:r(lambda_bc)}}bias-corrected lambda{p_end}
+{synopt:{cmd:r(lambda)}}lambda = corr(tau, pi)^2, covariance-inclusive (was the zero-covariance value in 1.5.0){p_end}
+{synopt:{cmd:r(lambda_zc)}}lambda_zc, prevalence-driven share of universe-score variance, zero-covariance{p_end}
 {synopt:{cmd:r(erho2)}}Erho2_DCF:O, zero-covariance path{p_end}
+{synopt:{cmd:r(erho2_cov)}}Erho2_DCF:O, covariance-inclusive path{p_end}
 {synopt:{cmd:r(erho2_dcfpl)}}same as {cmd:r(erho2)} (standard mode; name kept for compatibility){p_end}
 {synopt:{cmd:r(erho2_dcfp)}}same as {cmd:r(erho2)} (single-replication mode; replaces {cmd:r(erho2_dcfpl)}){p_end}
-{synopt:{cmd:r(erho2_orth)}}Erho2_DCF:O, covariance-inclusive path{p_end}
 {synopt:{cmd:r(mupi)}}mean prevalence{p_end}
 {synopt:{cmd:r(sigmae)}}resolved sigma2_eps{p_end}
 {synopt:{cmd:r(d_eps)}}divisor applied to sigma2_eps{p_end}
@@ -576,11 +605,12 @@ for syntax — requires your own one-row-per-object data with count variables):{
 {synopt:{cmd:r(n_obj)}}number of objects of measurement{p_end}
 {synopt:{cmd:r(pwmeans)}}1 if person-weighted means were used, 0 otherwise{p_end}
 {synopt:{cmd:r(trunc)}}number of components truncated at zero{p_end}
-{synopt:{cmd:r(psdfix)}}number of component matrices PSD-repaired on the orthogonal path{p_end}
+{synopt:{cmd:r(psdfix)}}number of component matrices PSD-repaired on the covariance-inclusive path{p_end}
 {synopt:{cmd:r(ub)}}1 if object-level DCF fully truncated (CRR_zc is an upper bound){p_end}
-{synopt:{cmd:r(varC)}}Wishart plug-in Var(Chat) used by CRR_bc{p_end}
-{synopt:{cmd:r(var_obj_zc)}, {cmd:r(var_obj_orth)}}V(O) on the two paths{p_end}
+{synopt:{cmd:r(var_obj_zc)}, {cmd:r(var_obj_orth)}}V(O) on the zero-covariance and covariance-inclusive paths{p_end}
 {synopt:{cmd:r(err_zc)}, {cmd:r(err_orth)}}total error (facet error + sigma2_eps/d(eps)) on the two paths{p_end}
+{synopt:{cmd:r(crr_orth)}, {cmd:r(lambda_orth)}, {cmd:r(erho2_orth)}}deprecated aliases of {cmd:r(crr)}, {cmd:r(lambda)}, {cmd:r(erho2_cov)}; removed in 1.6{p_end}
+{synopt:{cmd:r(crr_bc)}, {cmd:r(lambda_bc)}, {cmd:r(varC)}}({cmd:biascorrect} only; deprecated) Wishart bias-corrected CRR and lambda, and the plug-in Var(Chat); {cmd:r(crr_bc)} missing if the plug-in is unavailable{p_end}
 
 {p2col 5 22 26 2: Macros}{p_end}
 {synopt:{cmd:r(object)}}object of measurement{p_end}
@@ -592,14 +622,15 @@ for syntax — requires your own one-row-per-object data with count variables):{
 {synopt:{cmd:r(components)}}effects x 3 variance components as used on the
 zero-covariance path (post-truncation); rows are the effects that enter
 (object first), columns A, J, prevalence{p_end}
-{synopt:{cmd:r(covcomps)}}effects x 6 components as used on the orthogonal
+{synopt:{cmd:r(covcomps)}}effects x 6 components as used on the covariance-inclusive
 path (post-truncation, PSD-repaired): var_A, var_J, var_pi, cov_AJ, cov_Api,
 cov_Jpi{p_end}
 {synopt:{cmd:r(errors)}}error effects x 3: divisor d(e), V(e)/d(e) on the
-zero-covariance and on the orthogonal path (absent if no error effect remains){p_end}
-{synopt:{cmd:r(crr_table)}}({opt bootstrap} only) 10 x 4 bootstrap summary:
-rows crr, Abar, lambda, erho2, dbeta, crr_orth, lambda_orth, crr_bc,
-lambda_bc, Jbar; columns estimate, se, ci_lo, ci_hi{p_end}
+zero-covariance and on the covariance-inclusive path (absent if no error effect remains){p_end}
+{synopt:{cmd:r(crr_table)}}({opt bootstrap} only) 9 x 4 bootstrap summary:
+rows crr_zc, dbeta, crr, Jbar, Abar, lambda_zc, lambda, erho2_zc, erho2_cov;
+columns estimate, se, ci_lo, ci_hi (11 x 4 with {cmd:biascorrect}: rows
+crr_bc, lambda_bc appended){p_end}
 {synopt:{cmd:r(sampvar)}}(single-replication mode) 1 x 3 mean per-object
 sampling variances subtracted in the disattenuation{p_end}
 
