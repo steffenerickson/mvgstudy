@@ -11,7 +11,8 @@
 // CRR = lambda x Erho2_DCF:O, the share of observed object-score variance
 // that is both reproducible over the generalization facets and driven by
 // true prevalence, under differential classifier functioning (DCF) at every
-// effect of the design.  Reference: Erickson dissertation ch. 2;
+// effect of the design.  Reference: Erickson & Wong (2026), Reliable
+// measurement of teachers' instructional practices with LLM classifiers;
 // spec_generalized_mvcrr.md (rev. 3.2) and the derivation
 // generalized_crr_covariance_derivation.md (Parts I-II).
 //

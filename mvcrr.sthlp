@@ -125,7 +125,7 @@ covariances (the orthogonal, or regression, decomposition), under which
 lambda = corr(tau, pi)^2 exactly and CRR is the projected squared
 correlation of the D-study score with true prevalence.  This second
 coefficient is the estimand and is labelled simply {bf:CRR} ({cmd:r(crr)}),
-matching the notation of the dissertation.
+matching the notation of Erickson and Wong (2026).
 
 {pstd}
 Because the intercept Abar cancels from every variance ratio yet biases
@@ -232,7 +232,7 @@ the object-level components.
 {opt rho_lp(#)} ({it:single-replication mode only}) sets the
 lesson-within-object prevalence variance as a proportion of the object-level
 prevalence variance, sigma2_pi_LP = rho_lp x sigma2_pi.  Default is
-{cmd:rho_lp(1)}, the dissertation's value.
+{cmd:rho_lp(1)}, the value used in Erickson and Wong (2026).
 
 {dlgtab:Means and inference}
 
@@ -270,7 +270,7 @@ default is {cmd:ci_level(95)}.  Must be strictly between 0 and 100.
 {pstd}
 No single coefficient survives on its own, so {cmd:mvcrr} always displays and
 stores the following five-member panel (spec rev. 3.2; validated by
-Simulation 4 of the dissertation).  The panel is displayed in its reading
+Simulation 4 of Erickson and Wong, 2026).  The panel is displayed in its reading
 order: rank, check, estimate, companions.
 
 {phang2}
@@ -428,8 +428,8 @@ When the G study has the one-effect design {it:(A J prev = object)} — one row
 per object of measurement, no lesson replication (e.g., a validation subsample
 with all of a teacher's coded utterances pooled into a single set) — the
 lesson-within-object components cannot be estimated, and {cmd:mvcrr} switches
-to single-replication mode.  It then computes the dissertation's person-only
-criterion, CRR = lambda x {it:Erho2_DCF:P}, with the full panel: the
+to single-replication mode.  It then computes the person-only
+criterion of Erickson and Wong (2026), CRR = lambda x {it:Erho2_DCF:P}, with the full panel: the
 across-object covariance matrix of Ahat, Jhat, and the prevalence (from
 {cmd:emcp1}) is {it:disattenuated} by subtracting the mean per-object
 sampling covariance matrix — nu0^2*mean(1/n0) for the intercept,
@@ -642,10 +642,11 @@ sampling variances subtracted in the disattenuation{p_end}
 Brennan, R. L. (2001). {it:Generalizability theory}. Springer.
 
 {pstd}
-Erickson, S.  Dissertation, chapter 2: reliability of LLM-classifier-based
-observational measures under differential classifier functioning (DCF).
-CRR, the DCF-extended generalizability coefficients, the covariance-inclusive
-derivation and Simulation 4 are defined there.
+Erickson, S., & Wong, V. C. (2026).  Reliable measurement of teachers'
+instructional practices with LLM classifiers.  Working paper, University of
+Virginia.  https://steffenerickson.github.io/chapters/ch2/
+CRR, the DCF-extended generalizability coefficients and the covariance-inclusive
+derivation are defined there.
 
 {pstd}
 Li, G., Michaelides, M. P., & Haertel, E. (2023). Bootstrap confidence intervals for generalizability theory variance components. {it:PLOS ONE}, 18(7), e0288069.

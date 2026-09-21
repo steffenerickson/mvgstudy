@@ -12,7 +12,7 @@
 - The `mvcrr` panel is reduced to five members displayed in reading order:
   **CRR_zc** (ranking statistic), **delta_beta** (alignment check), **CRR**
   (covariance-inclusive point estimate of the estimand; "CRR_orth" in 1.5.0),
-  **Jbar**, **Abar**. Labels follow the dissertation's notation (CRR /
+  **Jbar**, **Abar**. Labels follow the notation of Erickson and Wong (2026) (CRR /
   CRR_zc, lambda / lambda_zc, Erho2 covariance-inclusive / zero-covariance).
 - Small-sample warning rewritten: rank on CRR_zc, read CRR as a point
   estimate (sampling SD about .15 at 12 objects), bootstrap for intervals.
